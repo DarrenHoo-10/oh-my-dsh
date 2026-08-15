@@ -22,6 +22,27 @@ export type {
 export { HostConnectionService } from './rpc-host.ts'
 
 export { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
+export {
+  DESKTOP_PROTOCOL_VERSION,
+  isDesktopHostRequest,
+  isDesktopHostMessage,
+} from './desktop-protocol.ts'
+export type {
+  DesktopBootEntry,
+  DesktopBootManifest,
+  DesktopFetchRequest,
+  DesktopFetchResponse,
+  DesktopHostMessage,
+  DesktopHostReply,
+  DesktopHostRequest,
+  DesktopHostStreamEnd,
+  DesktopHostStreamFrame,
+  DesktopRendererBridge,
+  DesktopTerminalListener, DesktopTerminalMessage,
+  DesktopShellMenu,
+  DesktopStreamChannel,
+  DesktopStreamListener,
+} from './desktop-protocol.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
@@ -43,8 +64,8 @@ function assertImageBodyCapacity(ctx: Context, maxRequestBodyBytes: number): voi
   }
 }
 
-/** Services required before providing Connection; API Proxy is an optional `/api` fallback. */
-export const inject = ['webServer']
+/** The Web carrier is optional; desktop hosts consume the same fetch bridge in-process. */
+export const inject: string[] = []
 
 /** Plugin config: the deployment's non-loopback serving authorities. */
 export interface ConnectionConfig {
@@ -170,15 +191,20 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
       await bridge(req, res, fetchHandler, maxRequestBodyBytes)
     },
   }
-  ctx.effect(() => ctx.webServer.register(route), 'client-connection: /api route')
+  const webServer = ctx.get('webServer')
+  if (webServer !== undefined) {
+    ctx.effect(() => webServer.register(route), 'client-connection: /api route')
+  }
   ctx.inject(['apiProxy'], (apiCtx) => {
+    const server = apiCtx.get('webServer')
+    if (server === undefined) return
     assertImageBodyCapacity(apiCtx, maxRequestBodyBytes)
     const downlinks = new WebSocketDownlinks(apiCtx.apiProxy)
     const registerDownlink = (
       path: string,
       handle: WebUpgradeRoute['handler'],
     ): void => {
-      apiCtx.effect(() => apiCtx.webServer.registerUpgrade({
+      apiCtx.effect(() => server.registerUpgrade({
         path,
         handler: (req, socket, head) => {
           if (!isTrustedApiRequest(req, trustedHosts)) {

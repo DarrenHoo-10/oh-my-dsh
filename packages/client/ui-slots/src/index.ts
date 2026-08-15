@@ -311,6 +311,8 @@ export type UseSession<Snap extends object = object> = SnapshotSelectorHook<Snap
 
 /** Props of the standard-kit SessionProvider seat (render-prop form). */
 export interface SessionAreaProps {
+  /** Explicit Session to bind; absent follows the application's current Session. */
+  sessionId?: SessionIdOf | undefined
   /** No-session body (also covers a current id whose session cannot be resolved). */
   empty?: (() => ReactNode) | undefined
   /** Session body; the framework remounts it per session (key=sessionId). */
@@ -515,12 +517,12 @@ export type KindOptions<
  * not declare them. Evaluates to an unsatisfiable intersection member naming
  * the declared keys when violated.
  */
-type RendersCheck<C, D> =
-  [keyof D & keyof SlotMap & string] extends [never] ? unknown
+type RendersCheck<C, D, R extends readonly (keyof SlotMap & string)[]> =
+  [(keyof D & keyof SlotMap & string) | R[number]] extends [never] ? unknown
     : C extends (props: infer P) => ReactNode
       ? ('renderSlot' extends keyof P ? unknown
         : 'renderSlotChain' extends keyof P ? unknown
-          : { 'children declared but the component consumes no renderSlot': keyof D & keyof SlotMap & string })
+          : { 'slots authorized but the component consumes no renderSlot': (keyof D & keyof SlotMap & string) | R[number] })
       : unknown
 
 /** Common register options share (see {@link SlotCore.register} for semantics). */
@@ -528,6 +530,7 @@ type BaseOptions<
   K extends keyof SlotMap & string,
   EntryKey extends EntryKeyOf<K>,
   D extends ChildrenDecl,
+  R extends readonly (keyof SlotMap & string)[],
   H,
   M = never,
   N = undefined,
@@ -536,6 +539,8 @@ type BaseOptions<
   name: K
   /** Child-slot declaration + render authorization + runtime spec, in one table. */
   children?: D
+  /** Existing slots this entry may render without owning their declaration or lifecycle. */
+  imports?: R
   /** Store seat: a shared handle (apply-constructed) or an exclusive factory (framework-called per entry x scope). */
   store?: H
   /**
@@ -563,6 +568,8 @@ export interface StoredEntry {
   inject?: ((...args: never[]) => Record<string, unknown>) | undefined
   /** Child-slot declaration table (declaration + authorization + runtime spec in one). */
   children?: Readonly<Record<string, SlotSpec<SlotEntryDef>>> | undefined
+  /** Existing slots authorized for rendering but not declared or owned by this entry. */
+  imports?: readonly string[] | undefined
   /** Declared store seat (instance resolution and lifecycle live with the host machinery). */
   store?: StoreDecl | undefined
   /** Declared dictionary namespace (the render machinery synthesizes the `t` seat from it). */
@@ -597,6 +604,7 @@ interface ErasedOptions {
   select?: ((owner: never) => unknown) | undefined
   priority?: number | undefined
   children?: Record<string, SlotSpec<SlotEntryDef>> | undefined
+  imports?: readonly string[] | undefined
   store?: StoreDecl | undefined
   locale?: string | undefined
   /* oxlint-disable-next-line typescript/no-explicit-any --
@@ -742,18 +750,19 @@ export class SlotCore {
     K extends keyof SlotMap & string,
     const EntryKey extends EntryKeyOf<K> = EntryKeyOf<K>,
     const D extends ChildrenDecl = Record<never, never>,
+    const R extends readonly (keyof SlotMap & string)[] = readonly [],
     H extends StoreDecl | undefined = undefined,
     M = never,
     N extends (keyof LocaleNamespaceMap & string) | undefined = undefined,
     C extends SlotComponent<never> = SlotComponent<never>,
   >(
-    options: BaseOptions<K, EntryKey, D, H, M, N> & { inject?: undefined },
+    options: BaseOptions<K, EntryKey, D, R, H, M, N> & { inject?: undefined },
     component: C
       & SlotComponent<ComposedProps<
-        K, NoInfer<EntryKey>, keyof NoInfer<D> & keyof SlotMap & string,
+        K, NoInfer<EntryKey>, (keyof NoInfer<D> & keyof SlotMap & string) | NoInfer<R>[number],
         HandleOf<NoInfer<H>>, object, NoInfer<M>, NoInfer<N>
       >>
-      & RendersCheck<C, D>,
+      & RendersCheck<C, D, R>,
   ): () => void
   /**
    * Inject-bearing overload: identical semantics to the overload above, plus
@@ -770,18 +779,19 @@ export class SlotCore {
     I extends object,
     const EntryKey extends EntryKeyOf<K> = EntryKeyOf<K>,
     const D extends ChildrenDecl = Record<never, never>,
+    const R extends readonly (keyof SlotMap & string)[] = readonly [],
     H extends StoreDecl | undefined = undefined,
     M = never,
     N extends (keyof LocaleNamespaceMap & string) | undefined = undefined,
     C extends SlotComponent<never> = SlotComponent<never>,
   >(
-    options: BaseOptions<K, EntryKey, D, H, M, N> & { inject: (...args: InjectParams<K, H>) => I },
+    options: BaseOptions<K, EntryKey, D, R, H, M, N> & { inject: (...args: InjectParams<K, H>) => I },
     component: C
       & SlotComponent<ComposedProps<
-        K, NoInfer<EntryKey>, keyof NoInfer<D> & keyof SlotMap & string,
+        K, NoInfer<EntryKey>, (keyof NoInfer<D> & keyof SlotMap & string) | NoInfer<R>[number],
         HandleOf<NoInfer<H>>, I, NoInfer<M>, NoInfer<N>
       >>
-      & RendersCheck<C, D>,
+      & RendersCheck<C, D, R>,
   ): () => void
   /* jscpd:ignore-end */
   register(options: ErasedOptions, component: unknown): () => void {
@@ -830,6 +840,16 @@ export class SlotCore {
         }
       }
     }
+    if (options.imports) {
+      for (const importedKey of options.imports) {
+        if (options.children?.[importedKey] !== undefined) {
+          throw new Error(`slot "${importedKey}" cannot be both declared and imported by the same entry`)
+        }
+        if (this.records.get(importedKey)?.spec === undefined) {
+          throw new Error(`imported slot "${importedKey}" is not declared`)
+        }
+      }
+    }
     // Shared handles pin their scope on first mount; factories are exempt
     // (the framework creates per-entry instances, no shared identity exists).
     if (options.store !== undefined && typeof options.store !== 'function') {
@@ -854,6 +874,7 @@ export class SlotCore {
       ...(options.select !== undefined ? { select: options.select } : {}),
       ...(options.inject !== undefined ? { inject: options.inject } : {}),
       ...(options.children !== undefined ? { children: options.children } : {}),
+      ...(options.imports !== undefined ? { imports: options.imports } : {}),
       ...(options.store !== undefined ? { store: options.store } : {}),
       ...(options.locale !== undefined ? { locale: options.locale } : {}),
       ...(options.registrant !== undefined ? { registrant: options.registrant } : {}),

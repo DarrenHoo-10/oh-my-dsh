@@ -60,7 +60,7 @@ function equalBreadcrumbs(left: readonly Breadcrumb[], right: readonly Breadcrum
  */
 export function ConversationSessionHeader({
   sessionId, useSession, useSessions, useStore, actions,
-  renderSlot, views, open, t,
+  renderSlot, views, open, toggleBottomPanel, t,
 }: ConversationSessionHeaderProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const tabs = views.list()
@@ -105,6 +105,9 @@ export function ConversationSessionHeader({
             </div>
             <div className={css.headerUtilities}>
               {renderSlot('conversation.session.header.utilities', {})}
+              <button type="button" className={css.panelToggle} onClick={toggleBottomPanel}>
+                {t('panel.toggleBottom')}
+              </button>
             </div>
           </div>
           {tabs.length > 1 && (

@@ -20,7 +20,7 @@ import css from './AppFrame.module.css'
 /** Full composed props: runtime share + child-slot render share + store share. */
 export type AppFrameProps =
   & PropsRuntime<'root'>
-  & PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay'>
+  & PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'sidechat' | 'shell.overlay'>
   & PropsStore<ReturnType<typeof createLayoutStore>>
 
 /** Center column grid item (session-body building block). */
@@ -31,6 +31,11 @@ function CenterColumn(props: { children?: ReactNode }) {
 /** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */
 function DetailsColumn(props: { children?: ReactNode }) {
   return <div className={css.detailsCol}>{props.children}</div>
+}
+
+/** Right-side contextual chat column. */
+function SideChatColumn(props: { children?: ReactNode }) {
+  return <div className={css.sideChatCol}>{props.children}</div>
 }
 
 /**
@@ -103,6 +108,7 @@ export function AppFrame({
     if (detailsSession === undefined) return
     if (lastSession.current !== undefined && lastSession.current !== detailsSession) {
       actions.closeDetails()
+      actions.closeSideChat()
     }
     lastSession.current = detailsSession
   }, [actions, detailsSession])
@@ -139,7 +145,7 @@ export function AppFrame({
   const sidebarPreference = sidebarCollapsed
     ? 0
     : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
-  const cols = computeColumns(viewport, sidebarPreference, detailsSession === undefined ? 0 : panels.details)
+  const cols = computeColumns(viewport, sidebarPreference, detailsSession === undefined ? 0 : panels.sideChat)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -158,16 +164,20 @@ export function AppFrame({
     actions.setSidebar(sidebarBase.current + dx)
   }, [actions])
   const onDetailsDrag = useCallback((dx: number) => {
-    actions.setDetails(detailsBase.current - dx)
+    actions.setSideChat(detailsBase.current - dx)
   }, [actions])
 
   return (
     <div
       ref={frameRef}
       className={css.frame}
-      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
+      style={{
+        gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px`,
+        gridTemplateRows: `minmax(0, 1fr) ${detailsSession === undefined ? 0 : panels.details}px`,
+      }}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
-      data-details-collapsed={cols.details === 0 || undefined}
+      data-details-collapsed={panels.details === 0 || undefined}
+      data-sidechat-collapsed={cols.details === 0 || undefined}
       data-dragging={dragging || undefined}
     >
       <div className={css.sidebarCol}>
@@ -188,6 +198,7 @@ export function AppFrame({
             is session-maybe; the strict details entry naturally renders
             empty while no session is current. */}
         <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
+        <SideChatColumn>{renderSlot('sidechat', {})}</SideChatColumn>
         <DetailsColumn>{renderSlot('details', {})}</DetailsColumn>
       </>
       <div className={css.overlayLayer} data-shell-overlay>

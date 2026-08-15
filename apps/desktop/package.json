@@ -1,0 +1,118 @@
+{
+  "name": "@deepseek-ai/dsh-desktop",
+  "description": "Windows desktop application for DeepSeek Harness",
+  "version": "0.1.0-rc.5",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "apps/desktop"
+  },
+  "type": "module",
+  "main": "lib/main.js",
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "pnpm run build:lib && pnpm run build:renderer",
+    "build:lib": "tsc -b && tsdown",
+    "build:renderer": "pnpm --filter @deepseek-ai/dsh-web-frontend run build --mode desktop",
+    "dev": "pnpm run build:lib && pnpm run build:renderer && electron .",
+    "package:win": "pnpm run build && electron-builder --win --x64"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/cordis-plugin-group": "workspace:^",
+    "@deepseek-ai/cordis-plugin-include": "workspace:^",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
+    "@deepseek-ai/dsh-app-boot": "workspace:^",
+    "@deepseek-ai/dsh-anonymous-user-id": "workspace:^",
+    "@deepseek-ai/dsh-atomic-write": "workspace:^",
+    "@deepseek-ai/dsh-base": "workspace:^",
+    "@deepseek-ai/dsh-bash-local": "workspace:^",
+    "@deepseek-ai/dsh-client-connection": "workspace:^",
+    "@deepseek-ai/dsh-client-modules": "workspace:^",
+    "@deepseek-ai/dsh-code-runtime": "workspace:^",
+    "@deepseek-ai/dsh-compaction": "workspace:^",
+    "@deepseek-ai/dsh-desktop-app": "workspace:^",
+    "@deepseek-ai/dsh-fs": "workspace:^",
+    "@deepseek-ai/dsh-home-paths": "workspace:^",
+    "@deepseek-ai/dsh-host-apiproxy": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-launch-environment": "workspace:^",
+    "@deepseek-ai/dsh-output-retention": "workspace:^",
+    "@deepseek-ai/dsh-persona": "workspace:^",
+    "@deepseek-ai/dsh-pwsh-local": "workspace:^",
+    "@deepseek-ai/dsh-sandbox": "workspace:^",
+    "@deepseek-ai/dsh-scope": "workspace:^",
+    "@deepseek-ai/dsh-session-telemetry": "workspace:^",
+    "@deepseek-ai/dsh-session-title-llm": "workspace:^",
+    "@deepseek-ai/dsh-shell": "workspace:^",
+    "@deepseek-ai/dsh-spill": "workspace:^",
+    "@deepseek-ai/dsh-subagent-in-process-driver": "workspace:^",
+    "@deepseek-ai/dsh-subprocess": "workspace:^",
+    "@deepseek-ai/dsh-timeout": "workspace:^",
+    "@deepseek-ai/dsh-tool-ask-user": "workspace:^",
+    "@deepseek-ai/dsh-web-app": "workspace:^",
+    "@deepseek-ai/dsh-workflow": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@types/node": "^22.20.0",
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.0",
+    "tsdown": "^0.22.2",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  },
+  "build": {
+    "appId": "ai.deepseek.dsh",
+    "productName": "deepseek harness",
+    "asar": true,
+    "compression": "normal",
+    "electronLanguages": ["zh-CN", "en-US"],
+    "npmRebuild": false,
+    "directories": {
+      "output": "../../"
+    },
+    "files": [
+      "lib/**/*",
+      "package.json",
+      "../../apps/web/dist/**/*",
+      "../../packages/**/*/lib/**/*",
+      "../../packages/**/*/package.json",
+      "../../vendor/**/*/lib/**/*",
+      "../../vendor/**/*/package.json",
+      "!**/*.map",
+      "!**/*.ts",
+      "!**/*.tsx",
+      "!**/*.mts",
+      "!**/*.cts",
+      "!**/*.tsbuildinfo",
+      "!**/*.md"
+    ],
+    "extraResources": [
+      {
+        "from": "../cli/config/agent-presets",
+        "to": "agent-presets"
+      }
+    ],
+    "win": {
+      "target": ["nsis"],
+      "executableName": "deepseek harness",
+      "icon": "../../apps/web/public/favicon.svg",
+      "artifactName": "deepseek harness.exe",
+      "signExecutable": false
+    },
+    "nsis": {
+      "artifactName": "deepseek harness.exe",
+      "oneClick": false,
+      "perMachine": false,
+      "differentialPackage": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh"
+    }
+  }
+}

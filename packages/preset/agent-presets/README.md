@@ -87,6 +87,7 @@ Every read failure degrades to no metadata — absent, malformed, wrongly typed,
 |---|---|---|
 | `default` | required | Preset id mounted when a caller names none |
 | `roots` | `[]` | Scanned directories in precedence order; each supplies `path` (a leading `~` expands) and `trust` (defaults to `user`) |
+| `moduleBaseUrl` | profile base | Installed-runtime URL used for bare packages in preset compositions; packaged hosts set it when their dependencies are not reachable from the profile directory |
 | `includeUserRoot` | `true` | Append `<dshHome>/.agent-presets` as a `user` root, after every configured root |
 
 An absent root supplies no presets rather than failing: the user root does not exist until the first locally authored preset, and naming a default no root supplies already fails loud at resolution.
@@ -100,6 +101,8 @@ The roots are resolved once, when the service is constructed. A root set that ch
 `includeUserRoot: false` mounts a roster over `roots` alone. A deployment that confines presets to its own directories needs it, and so does any test pinning an exact roster — otherwise the machine's real `<dshHome>` decides what the roster contains.
 
 The SHIPPED root stays an assembly fact: it sits beside the installed app's own config, a path only that app can resolve.
+
+Relative rows inside a preset always resolve beside its composition file. Bare package rows resolve from `moduleBaseUrl` when configured, otherwise from the profile base inherited by the preset scope. A packaged host that stores dependencies in an archive must provide `moduleBaseUrl`; this applies equally to a new session and to a resumed session mounting its recorded preset.
 
 ### The default preset is a user setting
 

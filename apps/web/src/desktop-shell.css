@@ -1,0 +1,123 @@
+body[data-dsh-desktop-shell] #root {
+  position: fixed;
+  inset: 48px 0 0;
+  height: auto;
+}
+
+.dsh-desktop-titlebar {
+  position: fixed;
+  inset: 0 138px auto 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 48px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  color: #737986;
+  background: #f4f7fb;
+  border-bottom: 1px solid #e5e8ee;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.dsh-desktop-titlebar button {
+  -webkit-app-region: no-drag;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: default;
+}
+
+.dsh-desktop-titlebar button:not(:disabled):hover {
+  color: #303541;
+  background: #e8ecf3;
+}
+
+.dsh-desktop-titlebar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 36px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.dsh-desktop-titlebar-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dsh-desktop-titlebar-icon:disabled {
+  color: #b9bec8;
+}
+
+.dsh-desktop-titlebar-menu {
+  height: 34px;
+  padding: 0 11px;
+  border-radius: 7px;
+  font-size: 15px;
+}
+
+body[data-ds-dark-theme][data-dsh-desktop-shell] .dsh-desktop-titlebar {
+  color: #aeb4bf;
+  background: #202226;
+  border-bottom-color: #303238;
+}
+
+.dsh-desktop-startup-error {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 32px;
+  color: #0f1115;
+  background: #f9fafb;
+}
+
+.dsh-desktop-startup-error-card {
+  width: min(680px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dsh-desktop-startup-error-wordmark {
+  align-self: center;
+  margin-bottom: 12px;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.dsh-desktop-startup-error-card h1 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 28px;
+}
+
+.dsh-desktop-startup-error-card pre {
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 13px/1.6 var(--ds-font-family-code, ui-monospace, 'SF Mono', Menlo, Consolas, 'Courier New');
+  color: #61666b;
+}
+
+body[data-ds-dark-theme] .dsh-desktop-startup-error {
+  color: #f2f3f5;
+  background: #18191c;
+}
+
+body[data-ds-dark-theme] .dsh-desktop-startup-error-card pre {
+  color: #aeb4bf;
+}

@@ -162,6 +162,9 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     read: () => savedScroll,
   }
   const forkAt = vi.fn()
+  const addToConversation = vi.fn()
+  const removeFromConversation = vi.fn()
+  const askInSideChat = vi.fn()
   // Selection rides the REAL chat store (same construction path as
   // production; the view reads it through the PropsStore useStore share).
   const chat = createChatStore().create()
@@ -262,13 +265,14 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   // SessionProvider seat arrives with the session-scope child declaration;
   // ChatView never invokes it (render-prop pass-through stub).
   const SessionProviderStub: ChatViewSlotProps['SessionProvider'] = ({ children }) => <>{children(SID)}</>
+  const emptyInput = { annotations: [] as const }
   const props: ChatViewSlotProps = {
     sessionId: SID,
     useSession: bindSnapshotSelector(source),
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
     useProjection: (() => undefined),
-    useInput: (() => { throw new Error('unused') }),
+    useInput: ((selector: (state: never) => unknown) => selector(emptyInput as never)) as ChatViewSlotProps['useInput'],
     inputActions: {
       setDraft: () => {},
       addImages: () => true,
@@ -287,6 +291,9 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     inspectCall,
     chatScroll,
     forkAt,
+    addToConversation,
+    removeFromConversation,
+    askInSideChat,
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
     // Mirrors the real lookup chain (conversation namespace, then common).
@@ -295,7 +302,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
   return {
     set, ChatView, props, openDetails, openFile, loadOlder, inspectCall,
-    chatScroll, forkAt, setSelection, toolOwners,
+    chatScroll, forkAt, addToConversation, removeFromConversation, askInSideChat, setSelection, toolOwners,
   }
 }
 
@@ -326,6 +333,95 @@ function installScrollMetrics(element: HTMLElement, initialHeight: number, clien
 }
 
 describe('Chat node rendering', () => {
+
+  it('collapses sent annotation context into a transcript attachment pill', () => {
+    const h = makeHarness({
+      nodes: [user(1, '[选中文本 1]\ndoctor 的 dsh-plugin 检查改为\n评论：测试下评论功能\n\n[问题]\n请重新检查')],
+    })
+    const view = render(<h.ChatView {...h.props} />)
+
+    expect(view.getByText('请重新检查')).not.toBeNull()
+    expect(view.queryByText('[选中文本 1]')).toBeNull()
+    expect(view.getByRole('button', { name: zh['selection.sentCount'].replace('{count}', '1') })).not.toBeNull()
+    expect(view.getByRole('tooltip').textContent).toContain('doctor 的 dsh-plugin 检查改为')
+    expect(view.getByRole('tooltip').textContent).toContain('测试下评论功能')
+  })
+
+  it('shows Codex-style actions for a transcript selection', () => {
+    const h = makeHarness({ nodes: [user(1, 'selected words')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const selected = view.getByText('selected words')
+    const range = document.createRange()
+    range.selectNodeContents(selected)
+    range.getBoundingClientRect = () => ({
+      left: 100, top: 100, right: 180, bottom: 120, width: 80, height: 20, x: 100, y: 100, toJSON: () => ({}),
+    })
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      rangeCount: 1,
+      toString: () => 'selected words',
+      getRangeAt: () => range,
+      removeAllRanges: vi.fn(),
+    } as unknown as Selection)
+
+    fireEvent.pointerUp(selected)
+    fireEvent.click(view.getByRole('button', { name: zh['selection.add'] }))
+    expect(h.addToConversation).toHaveBeenCalledWith(expect.objectContaining({
+      quote: 'selected words', comment: '', start: 0, end: 14,
+    }))
+    fireEvent.change(view.getByPlaceholderText(zh['selection.commentPlaceholder']), { target: { value: 'please explain' } })
+    fireEvent.click(view.getByRole('button', { name: zh['selection.save'] }))
+    expect(h.addToConversation).toHaveBeenLastCalledWith(expect.objectContaining({
+      quote: 'selected words', comment: 'please explain', start: 0, end: 14,
+    }))
+
+    fireEvent.pointerUp(selected)
+    fireEvent.click(view.getByRole('button', { name: zh['selection.sideChat'] }))
+    expect(h.askInSideChat).toHaveBeenCalledWith(expect.objectContaining({
+      quote: 'selected words', comment: '', start: 0, end: 14,
+    }))
+  })
+
+  it('repositions annotation pins when the conversation column reflows', () => {
+    const callbacks: ResizeObserverCallback[] = []
+    class ResizeObserverStub {
+      constructor(callback: ResizeObserverCallback) { callbacks.push(callback) }
+      observe = vi.fn()
+      disconnect = vi.fn()
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    let rect = {
+      left: 100, top: 100, right: 180, bottom: 120, width: 80, height: 20, x: 100, y: 100,
+      toJSON: () => ({}),
+    }
+    const createRange = document.createRange.bind(document)
+    vi.spyOn(document, 'createRange').mockImplementation(() => {
+      const range = createRange()
+      range.getBoundingClientRect = () => rect
+      return range
+    })
+    const h = makeHarness({ nodes: [user(1, 'selected words')] })
+    const input = {
+      annotations: [{
+        id: 'annotation-1', anchorKey: 'fixture:user:1', start: 0, end: 14,
+        quote: 'selected words', comment: 'explain this',
+      }],
+    }
+    h.props.useInput = ((selector: (state: never) => unknown) => selector({
+      ...input,
+    } as never)) as ChatViewSlotProps['useInput']
+    const view = render(<h.ChatView {...h.props} />)
+    const pin = view.getByRole('button', { name: zh['selection.edit'].replace('{index}', '1') })
+    expect(pin.style.left).toBe('187px')
+    expect(pin.style.top).toBe('93px')
+
+    rect = {
+      left: 440, top: 240, right: 520, bottom: 260, width: 80, height: 20, x: 440, y: 240,
+      toJSON: () => ({}),
+    }
+    act(() => { for (const callback of callbacks) callback([], {} as ResizeObserver) })
+    expect(pin.style.left).toBe('527px')
+    expect(pin.style.top).toBe('233px')
+  })
 
   it('threads the injected file-mention vocabulary into the closing prose only', () => {
     const wrote = (seq: number, callId: string, path: string): ToolResultNode => ({
@@ -377,6 +473,23 @@ describe('Chat node rendering', () => {
 })
 
 describe('ChatView', () => {
+  it('hides fork seed history while rendering the side-chat user message and reply', () => {
+    const h = makeHarness({
+      nodes: [
+        user(3, 'inherited question'),
+        user(8, '[选中文本 1]\n双人模式\n\n[问题]\nside question'),
+        assistant(9, 'side answer'),
+      ],
+      hasMore: true,
+    })
+    const view = render(<h.ChatView {...h.props} visibleFromSeq={8} />)
+    expect(view.queryByText('inherited question')).toBeNull()
+    expect(view.getByText('side question')).toBeTruthy()
+    expect(view.getByRole('button', { name: '1 条注释' })).toBeTruthy()
+    expect(view.getByText('side answer')).toBeTruthy()
+    expect(view.queryByText('加载更早')).toBeNull()
+  })
+
   it('hands a windowless tool result to the Tool seat with an empty tool name', () => {
     const h = makeHarness({
       nodes: [{ ...toolResult(3, 'w1'), call: null }],
@@ -739,6 +852,27 @@ describe('ChatView', () => {
     expect(buttons[0]!.getAttribute('aria-disabled')).toBeNull()
     fireEvent.click(buttons[0]!)
     expect(h.forkAt.mock.calls).toEqual([[2]])
+  })
+
+  it('offers finalized side-chat answers as annotations for the source composer', () => {
+    const returnToParent = vi.fn(() => true)
+    const h = makeHarness({
+      nodes: [user(1, 'question'), assistant(2, 'answer from side chat')],
+      turnEnds: new Map([[1, 3]]),
+    })
+    const view = render(<h.ChatView {...h.props} returnToParent={returnToParent} />)
+
+    fireEvent.click(view.getByRole('button', { name: '发送到主会话' }))
+    expect(returnToParent).toHaveBeenCalledWith(2, 'answer from side chat')
+  })
+
+  it('does not offer the return action in an ordinary conversation', () => {
+    const h = makeHarness({
+      nodes: [user(1, 'question'), assistant(2, 'ordinary answer')],
+      turnEnds: new Map([[1, 3]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.queryByRole('button', { name: '发送到主会话' })).toBeNull()
   })
 
   it('disables fork when the indexed Turn has a later steering Node', () => {

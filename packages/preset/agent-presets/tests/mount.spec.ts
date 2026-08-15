@@ -85,6 +85,43 @@ beforeEach(async () => {
 })
 
 describe('composing an agent from a preset', () => {
+  it('uses an explicit installed-runtime base for a bare preset package', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-module-base-'))
+    const presetDir = join(root, 'installed')
+    const plugin = join(FIXTURES, 'plugins', 'contribute.js')
+    const moduleBaseUrl = 'file:///installed/runtime/package.json'
+    await mkdir(presetDir)
+    await writeFile(
+      join(presetDir, COMPOSITION_FILE),
+      '- id: only\n  name: fixture-installed-plugin\n  config:\n    tool: installed\n',
+    )
+    const scoped = await harness({
+      default: 'installed',
+      roots: [{ path: root, trust: 'system' }],
+      moduleBaseUrl,
+      includeUserRoot: false,
+    })
+    const internal = scoped.loader.internal!
+    const importModule = internal.import.bind(internal)
+    const imported = vi.spyOn(internal, 'import').mockImplementation(async (
+      specifier: string,
+      base: string,
+      attributes: ImportAttributes,
+    ) => {
+      if (specifier === 'fixture-installed-plugin') {
+        const module: unknown = await import(pathToFileURL(plugin).href)
+        return module
+      }
+      const module: unknown = await importModule(specifier, base, attributes)
+      return module
+    })
+
+    const agent = await agentOn(scoped, 'sess-installed-plugin')
+
+    expect(toolNames(scoped, agent)).toEqual(['installed'])
+    expect(imported).toHaveBeenCalledWith('fixture-installed-plugin', moduleBaseUrl, {})
+  })
+
   it('hands an absolute plugin path to Node as a file URL', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-preset-absolute-plugin-'))
     const presetDir = join(root, 'absolute')

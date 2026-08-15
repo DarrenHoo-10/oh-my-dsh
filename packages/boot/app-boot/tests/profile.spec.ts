@@ -239,6 +239,67 @@ describe('healProfilesModuleFallback', () => {
     expect(before).toContain('dep-of-a')
   })
 
+  it('reuses a valid installation fallback cache and invalidates it after fallback mutation', () => {
+    const anchor = stageInstallation({
+      'bundle-a': { patch: '[]\n', deps: { 'dep-of-a': '0.0.0' } },
+    })
+    const modules = join(anchor, '..', 'node_modules')
+    const dependencyManifest = join(modules, 'dep-of-a', 'package.json')
+    mkdirSync(join(modules, 'dep-of-a'), { recursive: true })
+    writeFileSync(dependencyManifest, JSON.stringify({ name: 'dep-of-a', version: '0.0.0' }))
+    const home = tmp()
+
+    healProfilesModuleFallback(anchor, home)
+    const cache = JSON.parse(readFileSync(join(home, 'profiles', '.module-fallback-state.json'), 'utf8')) as {
+      version: unknown
+      installation: unknown
+      directories: Record<string, unknown>
+    }
+    expect(cache.version).toBe(1)
+    expect(typeof cache.installation).toBe('string')
+    expect(typeof cache.directories['.']).toBe('number')
+
+    writeFileSync(dependencyManifest, '{')
+    expect(() => { healProfilesModuleFallback(anchor, home) }).not.toThrow()
+
+    writeFileSync(join(home, 'profiles', 'node_modules', 'cache-invalidator'), '')
+    expect(() => { healProfilesModuleFallback(anchor, home) }).toThrow()
+  })
+
+  it('treats malformed fallback cache fields as misses', () => {
+    const anchor = stageInstallation({})
+    const home = tmp()
+    const cachePath = join(home, 'profiles', '.module-fallback-state.json')
+    healProfilesModuleFallback(anchor, home)
+    const valid = JSON.parse(readFileSync(cachePath, 'utf8')) as {
+      version: number
+      installation: string
+      directories: Record<string, number>
+    }
+    const invalidCaches: unknown[] = [
+      null,
+      [],
+      'cache',
+      {},
+      { ...valid, version: 0 },
+      { ...valid, installation: 'another-installation' },
+      { ...valid, directories: null },
+      { ...valid, directories: [] },
+      { ...valid, directories: {} },
+      { ...valid, directories: { '../outside': 0 } },
+      { ...valid, directories: { '.': 'now' } },
+      { ...valid, directories: { '.': 1e400 } },
+      { ...valid, directories: { '@missing': 0 } },
+    ]
+
+    for (const cache of invalidCaches) {
+      writeFileSync(cachePath, JSON.stringify(cache))
+      expect(() => { healProfilesModuleFallback(anchor, home) }).not.toThrow()
+    }
+    writeFileSync(cachePath, '{')
+    expect(() => { healProfilesModuleFallback(anchor, home) }).not.toThrow()
+  })
+
   it('throws when a fallback entry is a real directory', () => {
     const anchor = stageInstallation({})
     const home = tmp()

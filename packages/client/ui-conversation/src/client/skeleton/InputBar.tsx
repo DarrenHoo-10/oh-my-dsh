@@ -68,11 +68,12 @@ export function InputBar({
   // current; the bar renders the same DOM inert instead of a parallel tree.
   const live = input !== undefined && keyboard !== undefined && inputActions !== undefined
   const draft = input?.draft ?? ''
+  const annotations = input?.annotations ?? []
   const attachments = useMemo(
     () => input === undefined || draftImages === undefined ? [] : draftImages(input.imageIds),
     [draftImages, input?.imageIds],
   )
-  const empty = draft.trim() === '' && attachments.length === 0
+  const empty = draft.trim() === '' && attachments.length === 0 && annotations.length === 0
   const [preview, setPreview] = useState<ComposerAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
   // Transient error banner (image-intake rejections and prompt failures): the
@@ -289,9 +290,14 @@ export function InputBar({
       return
     }
     if (e.key === 'Escape') {
-      // Escape layering: an open overlay closes; claimed without an overlay
-      // does NOT release (backspacing the token is the only exit gesture).
       keyboard.dismissPopup()
+      if (!composing && !e.repeat && running && (subagent === null || continuable) && stop !== undefined) {
+        e.preventDefault()
+        stop()
+        return
+      }
+      // Outside a cancellable run, Escape closes input overlays; a claimed
+      // token without an overlay stays claimed until its token is removed.
       if (keyboard.arbitrate('escape', composing) === 'consumed') e.preventDefault()
       return
     }
@@ -675,6 +681,25 @@ export function InputBar({
         onPointerDown={workspaceTrigger ? (e) => { e.stopPropagation() } : undefined}
       >
         {overlay !== undefined && <div className={css.overlayAnchor}>{overlay}</div>}
+        {annotations.length > 0 && (
+          <div className={css.annotationRail}>
+            <span>{t('selection.count', { count: annotations.length })}</span>
+            <span className={css.annotationSummary} role="tooltip">
+              {annotations.map((annotation, index) => (
+                <span key={annotation.id}>
+                  <strong>{index + 1}. {t('selection.selectedText')}</strong>
+                  <span>{annotation.quote}</span>
+                  {annotation.comment !== '' && <span>{annotation.comment}</span>}
+                </span>
+              ))}
+            </span>
+            <button
+              type="button"
+              aria-label={t('selection.clear')}
+              onClick={() => { for (const annotation of annotations) inputActions?.removeAnnotation?.(annotation.id) }}
+            >×</button>
+          </div>
+        )}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
         {railItems.length > 0 && (
           <div className={css.attachments}>

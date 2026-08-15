@@ -45,6 +45,7 @@ function makeHost() {
     sessions: {
       list: { getSnapshot: () => ({}), subscribe: () => () => {} },
       provideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
+      provideInfoFor: () => undefined,
     },
     workspaces: {
       list: { getSnapshot: () => ({}), subscribe: () => () => {} },

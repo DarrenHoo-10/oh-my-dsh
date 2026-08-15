@@ -49,6 +49,20 @@ export {
   type ProfileManifest,
 } from './profile.ts'
 
+export {
+  createProcessShutdown,
+  PROCESS_SHUTDOWN_TIMEOUT_MS,
+  type ProcessShutdown,
+} from './process-shutdown.ts'
+export {
+  homePatchPath,
+  prepareProfile,
+  PROFILE_ROOT_FILENAME,
+  resolveTelemetryPatch,
+  runProfile,
+  type ProfileRunOptions,
+} from './profile-run.ts'
+
 /**
  * Resolve the config to boot. Replay swaps a `cordis.yml` basename for
  * `cordis.snapshot.yml` in the same directory; every other mode keeps the path.
@@ -499,6 +513,15 @@ export async function mountRootInclude(
         /* v8 ignore next -- Node supplies the internal loader; this preserves the
            original diagnostic for hypothetical embedders without it. */
         if (internal === undefined) return super.import(specifier, getOuterStack)
+        try {
+          if (internal.version === 'v1') internal.resolveSync(specifier, bareModuleBaseUrl, {})
+          else internal.resolveSync(bareModuleBaseUrl, { specifier })
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ERR_MODULE_NOT_FOUND') {
+            return super.import(specifier, getOuterStack)
+          }
+          throw error
+        }
         return internal.import(specifier, bareModuleBaseUrl, {})
       }
     }

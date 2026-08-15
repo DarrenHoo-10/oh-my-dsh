@@ -55,6 +55,7 @@ export const sessionSummarySchema = z.object({
   running: z.boolean(),
   blank: z.boolean(),
   parentSessionId: sessionIdSchema.optional(),
+  seedLength: z.number().int().nonnegative().optional(),
   origin: z.literal('subagent').optional(),
   cwd: z.string().optional(),
   agentPreset: z.string().optional(),
@@ -131,12 +132,24 @@ export const sessionRenameValueSchema = z.object({
 export const sessionForkRequestSchema = z.object({
   sessionId: sessionIdSchema,
   atSeq: z.number().int().nonnegative().optional(),
+  temporary: z.boolean().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'session.fork'>>>
 
 /** session.fork response value (the child session id). */
 export const sessionForkValueSchema = z.object({
   sessionId: sessionIdSchema,
+  seedLength: z.number().int().nonnegative(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.fork'>>>
+
+/** session.discard request payload. */
+export const sessionDiscardRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'session.discard'>>>
+
+/** session.discard response value. */
+export const sessionDiscardValueSchema = z.object({
+  discarded: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.discard'>>>
 
 /** session.history request payload (beforeSeq/maxMessages page backwards from the window tail). */
 export const sessionHistoryRequestSchema = z.object({

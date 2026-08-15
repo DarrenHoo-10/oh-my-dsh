@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-directory-picker-native",
-  "description": "Native directory-picker surface: the renderless workspace directory-flow occupant driving the host's OS chooser",
+  "description": "Native directory-picker surface using the Electron bridge or the host OS chooser",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"
@@ -44,6 +44,7 @@
   },
   "license": "MIT",
   "peerDependencies": {
+    "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
     "@deepseek-ai/dsh-client-ui-workspace": "workspace:^",
@@ -52,6 +53,7 @@
     "react": "^18.2.0"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
     "@deepseek-ai/dsh-client-ui-workspace": "workspace:^",

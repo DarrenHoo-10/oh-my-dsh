@@ -28,6 +28,13 @@ type RenderSlotBinding = (key: string, owner: object, opts?: RenderOpts) => Reac
 
 type RenderSlotChainBinding = (key: string, owner: object, opts?: ChainRenderOpts) => ReactNode
 
+function authorizedSpec(host: SlotRendererHost, entry: StoredEntry, key: string) {
+  const declared = entry.children?.[key]
+  if (declared !== undefined) return declared
+  if (entry.imports?.includes(key)) return host.specOf(key)
+  return undefined
+}
+
 /**
  * Per-entry renderSlot bindings. The binding is identity-stable per entry
  * (memoized components must not resubscribe on unrelated re-renders) and dies
@@ -44,9 +51,9 @@ function boundRenderSlot(host: SlotRendererHost, entry: StoredEntry): RenderSlot
         throw new StaleAuthorizationError(`renderSlot('${key}') from a disposed registration`)
       }
       // Plain-JS backstop; typed callers are narrowed to the declared keys.
-      const declared = entry.children?.[key]
+      const declared = authorizedSpec(host, entry, key)
       if (declared === undefined) {
-        throw new SlotOwnershipError(`slot '${key}' is not declared by this entry's children`)
+        throw new SlotOwnershipError(`slot '${key}' is not declared or imported by this entry`)
       }
       if (declared.kind === 'chain') {
         throw new SlotOwnershipError(`slot '${key}' is declared 'chain' — use renderSlotChain`)
@@ -73,9 +80,9 @@ function boundRenderSlotChain(host: SlotRendererHost, entry: StoredEntry): Rende
       if (!host.isLive(entry)) {
         throw new StaleAuthorizationError(`renderSlotChain('${key}') from a disposed registration`)
       }
-      const declared = entry.children?.[key]
+      const declared = authorizedSpec(host, entry, key)
       if (declared === undefined) {
-        throw new SlotOwnershipError(`slot '${key}' is not declared by this entry's children`)
+        throw new SlotOwnershipError(`slot '${key}' is not declared or imported by this entry`)
       }
       if (declared.kind !== 'chain') {
         throw new SlotOwnershipError(`slot '${key}' is declared '${declared.kind}', not 'chain' — use renderSlot`)
@@ -423,17 +430,24 @@ function standardKit(
     kit['useStore'] = observableHook(store)
     kit['actions'] = store.actions
   }
-  if (entry.children !== undefined) {
+  if (entry.children !== undefined || entry.imports !== undefined) {
+    const specs = [
+      ...Object.values(entry.children ?? {}),
+      ...(entry.imports ?? []).flatMap((key) => {
+        const spec = host.specOf(key)
+        return spec === undefined ? [] : [spec]
+      }),
+    ]
     kit['renderSlot'] = boundRenderSlot(host, entry)
     // renderSlotChain rides the same declaration source: only entries whose
     // children include a chain-kind slot receive the chain dispatch seat.
-    if (Object.values(entry.children).some(spec => spec.kind === 'chain')) {
+    if (specs.some(spec => spec.kind === 'chain')) {
       kit['renderSlotChain'] = boundRenderSlotChain(host, entry)
     }
     // SessionProvider standard seat: entries declaring a session-scope child
     // render the session area, so the framework hands them the self-wired
     // provider (module-level component = stable reference; no value import).
-    if (Object.values(entry.children).some(spec => spec.scope === 'session')) {
+    if (specs.some(spec => spec.scope === 'session')) {
       kit['SessionProvider'] = SessionProvider
     }
   }

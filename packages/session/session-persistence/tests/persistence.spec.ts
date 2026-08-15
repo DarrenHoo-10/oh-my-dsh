@@ -269,6 +269,23 @@ describe('the inherited readRaw default', () => {
   })
 })
 
+describe('temporary side-chat sessions', () => {
+  it('never materializes their inherited or newly appended events', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(MemoryPersistence)
+    const session = ctx.sessions.create(SessionId('temporary-sidechat'), {
+      seed: oneTurnLog(),
+      meta: { cwd: '/work', origin: 'sidechat' },
+    })
+    session.append('turn/start', { turn: 2 })
+    session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    await ctx.sessions.flush(session)
+    expect(await ctx.sessionPersistence.list()).toEqual([])
+    await fiber.dispose()
+  })
+})
+
 // Each fixture shares one map across mounts. No `corruptTail` is supplied because map writes are
 // atomic; the suite asserts that skip while JSONL and SQLite cover the repair branch.
 runCoordinatorContract('memory', async (): Promise<CoordinatorFixture> => {

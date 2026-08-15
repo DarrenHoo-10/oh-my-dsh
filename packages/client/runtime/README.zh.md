@@ -72,7 +72,7 @@ reason 为 `max-tokens` 的 `turn/end` 会在该轮位置投影出一个 `turn-m
 
 ## 会话 fork
 
-`ISessions.fork({sessionId, atSeq?, increaseTitle?})` 只在子会话摘要已能在本地寻址后才完成；该摘要携带源会话的谱系和 cwd，且 `blank: false`，由调用方决定是否打开。`increaseTitle: true` 会在 client 端根据源会话的持久化标题重命名子会话：尾部 `(N)` 或 `（N）` 递增并保留括号样式，其余标题追加 ` (1)`；源会话没有持久化标题时跳过改名，改名失败时拒绝 promise 但保留已创建的子会话。该选项不会进入 Host fork 请求。即使响应为 `workspace-attach-failed`，其中仍会标识 Host 已发布的子会话，因此 `SessionManager` 会先将这一部分成功对账，再让 `SessionForkError` 到达调用方，避免重试创建重复的子会话。
+`ISessions.fork({sessionId, atSeq?, increaseTitle?, temporary?})` 只在子会话摘要已能在本地寻址后才完成；该摘要携带源会话的谱系、cwd 和 Host 返回的 `seedLength`，且 `blank: false`，由调用方决定是否打开。`seedLength` 是第一个只属于子会话的事件 seq，因此展示层可以隐藏继承上下文，而无需把它从 Session 中删除。`increaseTitle: true` 会在 client 端根据源会话的持久化标题重命名子会话：尾部 `(N)` 或 `（N）` 递增并保留括号样式，其余标题追加 ` (1)`；源会话没有持久化标题时跳过改名，改名失败时拒绝 promise 但保留已创建的子会话。该标题选项不会进入 Host。`temporary: true` 会发送给 Host，并把子会话记录在独立的内存注册表中：`SessionListState.byId` 会为 `SessionProvider` 暴露它，`ids` 则会忽略它，因此 Workspace 与侧边栏投影都无法显示它。`openWindow(sessionId)` 会在不修改 `list.current` 的前提下加载未处于主舞台的 Session；历史加载让该 Session 进入错误状态时，这个操作会拒绝。`discardTemporary(sessionId)` 会等待 Host 释放、删除该注册项并 prune 子会话 scope。即使普通 fork 响应为 `workspace-attach-failed`，其中仍会标识 Host 已发布的子会话，因此 `SessionManager` 会先将这一部分成功对账，再让 `SessionForkError` 到达调用方，避免重试创建重复的子会话。
 
 ## 会话模型选择
 
@@ -89,5 +89,5 @@ reason 为 `max-tokens` 的 `turn/end` 会在该轮位置投影出一个 `turn-m
 ## 已知限制与暂缓事项
 
 - **`loader.unload` 是 stub**：它会抛出 not-implemented；客户端没有从 fiber dispose 到注册与样式移除的卸载链。
-- **scope 拆卸由阶段驱动，目前只能有一个占用者**：已 staged 的会话精确跟随 `list.current`（staging 就是打开信号：事件窗口打开 ⟺ 会话位于 stage）；在 staged 状态下被移除的会话，其 scope 会冻结保留，直到 stage 转向其他会话，而非直到真实观察者数量降为零。解析（`binding()`／`scope()`）只是纯寻址，可安全用于渲染；渲染层经 `currentProvideInfo` observable 读取当前 bundle。并发 pane 落地时，staged 状态可以扩展为多 pane 列表。
+- **scope 拆卸仍由舞台驱动**：舞台会话跟随 `list.current`；在舞台上被移除的会话 scope 会冻结保留到舞台切换，而不是等待真实观察者计数归零。`binding()`／`scope()` 仍是可安全用于渲染的纯寻址操作，`openWindow()` 则是未处于舞台的窗格在不修改 `list.current` 的前提下显式、幂等加载历史的操作。渲染层通过 `currentProvideInfo` 读取当前会话 bundle，并通过 `provideInfoFor()` 解析显式窗格的 bundle。
 - **插件 bundle 从该包导入值时必须使用 `/client` 子路径**：裸包名不在 loader externals 表中，会内联第二个模块实例；其私有 scope-tag Symbol 永远无法匹配。

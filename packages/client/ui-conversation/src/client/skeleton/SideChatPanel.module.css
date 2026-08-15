@@ -1,0 +1,21 @@
+.root { display: flex; flex-direction: column; height: 100%; min-width: 0; background: var(--dsw-alias-bg-base); font-family: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', sans-serif; }
+.header { display: flex; align-items: center; justify-content: space-between; min-height: 52px; padding: 0 10px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+.tabs { display: flex; align-items: center; min-width: 0; gap: 6px; overflow: hidden; }
+.tab, .activeTab, .newTab, .headerActions button { border: 0; color: var(--dsw-alias-label-secondary); background: transparent; cursor: pointer; }
+.tab, .activeTab { display: flex; align-items: center; gap: 8px; max-width: 150px; padding: 7px 9px; border-radius: 10px; white-space: nowrap; }
+.activeTab { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+.tab span:first-child, .activeTab span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.tabClose { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; }
+.tabClose:hover { background: var(--dsw-alias-interactive-bg-hover-solid); }
+.newTab { padding: 7px; font-size: 20px; }
+.headerActions { display: flex; align-items: center; flex: none; gap: 4px; }
+.headerActions button { padding: 6px 8px; border-radius: 8px; }
+.headerActions button:hover, .newTab:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.body { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; --dsh-chat-content-width: 100%; --dsh-composer-card-max-width: 100%; --dsh-composer-side-clearance: 12px; }
+.loadState { display: grid; width: 100%; height: 100%; place-items: center; color: var(--dsw-alias-label-secondary); font-size: 13px; }
+.emptyState { position: absolute; inset: 0; display: flex; height: 100%; flex-direction: column; align-items: center; justify-content: center; color: var(--dsw-alias-label-primary); pointer-events: none; }
+.body:has([data-chat-anchor-key]) .emptyState { display: none; }
+.emptyIcon { margin-bottom: 14px; color: var(--dsw-alias-label-secondary); font-size: 34px; }
+.emptyState strong { font-size: 18px; }
+.emptyState p { margin: 8px 0 0; color: var(--dsw-alias-label-tertiary); font-size: 13px; }
+.composerWrap { flex: none; min-width: 0; padding: 0 12px 12px; --dsh-chat-content-width: 100%; --dsh-composer-card-max-width: 100%; --dsh-composer-side-clearance: 0px; }

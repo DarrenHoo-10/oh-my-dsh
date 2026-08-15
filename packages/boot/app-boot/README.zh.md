@@ -33,9 +33,11 @@ Loader 并发挂载各个条目，因此当其他环节失败时，某个界面�
 
 此包不包含 loader 钩子，也不提供开发模式接口。[`dsh` 应用](../../../apps/cli/README.md) 持有自己的 Node 源码启动钩子，并在启动序列中使用这些 helper；构建后的消费方仍使用普通 Node 包解析。
 
+`runProfile(options)` 统一处理随应用交付或用户 profile 的组合、冻结启动环境、Loader 树挂载、patch watcher 和有界进程关闭。调用方提供安装锚点、profile 名称、启动环境、可选的启动器服务以及可选的已安装包模块基准。封闭的打包运行时可以提供该基准，从自身归档解析随应用交付的插件并跳过回退链接修复；runner 还会把该基准传给 `agent-presets`，使每个会话的嵌套 preset 组合解析同一安装。安装中不存在的包仍会从 profile 解析。CLI 仍然拥有参数和终端逻辑，Electron Host 可以复用同一套 `desktop` profile 而不引入 CLI 代码。
+
 ## Profiles
 
-profile 是位于 `$DSH_HOME/profiles/<name>` 下的目录（harness home 由 [`resolveDshHome`](../../util/home-paths/README.md) 解析：先取 `$DSH_HOME`，否则取 `~/.dsh`），其中包含一个 `package.json`（树外插件 `dependencies`，加上 profile manifest `dsh.profile` 及其有序的 `bundles` 层列表）和用户自己的 `cordis.patch.yml`。组合包是在 manifest 中声明 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` 的 npm 包；`loadProfile` 以双锚点解析每个 `dsh.profile.bundles` 名称（先从 dsh 安装目录，再从 profile 目录），列出的包若没有组合包声明则明确报错。`composeEntries` 通过 include 自己的 `applyEntryPatches` 在空条目列表之上应用各 patch 层，因此组合、标志推导和配置 dump 绝不会与实际启动内容发生偏离。`healProfilesModuleFallback` 维护扁平的 `$DSH_HOME/profiles/node_modules` 目录（安装目录的应用与各组合包依赖的每个包对应一个符号链接），使任意 profile 中的裸插件名都能经 Node 常规的逐级向上查找解析，而无需由 pnpm 管理随安装内置的包。`PROFILE_TEMPLATES`（`web`、`headless`）在首次使用时自动初始化；其他名称在 `initProfile` 创建之前都会明确报错（即 `dsh plugin` 路径）。`loadProfile` 会将与安装自有组合包元组完全一致的列表规范化为随发行版交付的模板，同时保留 manifest 中其他所有字段；一旦条目有任何额外、缺失或重排，该列表就归用户所有并保持不变。
+profile 是位于 `$DSH_HOME/profiles/<name>` 下的目录（harness home 由 [`resolveDshHome`](../../util/home-paths/README.md) 解析：先取 `$DSH_HOME`，否则取 `~/.dsh`），其中包含一个 `package.json`（树外插件 `dependencies`，加上 profile manifest `dsh.profile` 及其有序的 `bundles` 层列表）和用户自己的 `cordis.patch.yml`。组合包是在 manifest 中声明 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` 的 npm 包；`loadProfile` 以双锚点解析每个 `dsh.profile.bundles` 名称（先从 dsh 安装目录，再从 profile 目录），列出的包若没有组合包声明则明确报错。`composeEntries` 通过 include 自己的 `applyEntryPatches` 在空条目列表之上应用各 patch 层，因此组合、标志推导和配置 dump 绝不会与实际启动内容发生偏离。`healProfilesModuleFallback` 维护扁平的 `$DSH_HOME/profiles/node_modules` 目录（安装目录的应用与各组合包依赖的每个包对应一个符号链接），使任意 profile 中的裸插件名都能经 Node 常规的逐级向上查找解析，而无需由 pnpm 管理随安装内置的包。链接修复成功后会记录安装指纹和回退目录的修改时间；安装目录与链接目录均未变化时，后续启动会跳过依赖闭包扫描，而安装位置变化、manifest 变化或回退目录被修改都会使缓存失效。`PROFILE_TEMPLATES`（`web`、`headless`）在首次使用时自动初始化；其他名称在 `initProfile` 创建之前都会明确报错（即 `dsh plugin` 路径）。`loadProfile` 会将与安装自有组合包元组完全一致的列表规范化为随发行版交付的模板，同时保留 manifest 中其他所有字段；一旦条目有任何额外、缺失或重排，该列表就归用户所有并保持不变。
 
 用户级的机器本地偏好同样位于 harness home 中：
 

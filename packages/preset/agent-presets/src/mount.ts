@@ -326,10 +326,15 @@ function mountDetail(error: unknown): string {
  * the caller receives no disposer. A rejection leaves nothing mounted.
  * @param agentCtx - the agent's scope context, from the agent factory's `setup`.
  * @param preset - the resolved preset to compose the agent from.
+ * @param moduleBaseUrl - optional installed-runtime base for bare package names.
  * @throws when `agentCtx` carries no scope, a row is unusable, or a row
  * published a service into the root realm.
  */
-export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promise<void> {
+export async function mountPreset(
+  agentCtx: Context,
+  preset: AgentPreset,
+  moduleBaseUrl?: string,
+): Promise<void> {
   const scope = scopeOf(agentCtx)
   if (scope === undefined) {
     throw new Error(
@@ -341,8 +346,9 @@ export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promi
   // Captured before the subtree exists: the standing scope context still
   // carries the host composition's base, which is inside the installed
   // harness and is therefore where a row's package name has to resolve from.
+  const resolutionBase = moduleBaseUrl ?? agentCtx.baseUrl
   /* v8 ignore next -- the Loader sets `baseUrl` on the root before any scoped context derives from it */
-  if (agentCtx.baseUrl !== undefined) harnessBase.set(config, agentCtx.baseUrl)
+  if (resolutionBase !== undefined) harnessBase.set(config, resolutionBase)
   // Before the record this mount is about to add: standing mounts are one per
   // preset and live until whole-tree teardown, so pruning here only sweeps
   // records of torn-down runtimes (tests; an HMR reload of the roster).

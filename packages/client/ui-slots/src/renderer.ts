@@ -171,6 +171,8 @@ export interface SlotRendererHost {
      * undefined while no current session resolves.
      */
     provideInfo: HostObservable<SessionMaybeProvideInfo>
+    /** Resolve one definite session's render bundle without changing the current Session. */
+    provideInfoFor(sessionId: string): SessionProvideInfo | undefined
   }
   /** Workspace-side standard-kit sources. */
   workspaces: {

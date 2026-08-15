@@ -17,6 +17,16 @@ import type { InputSubmitMode } from '../contract/composer-submission.ts'
 /** Browser-runtime identity of one unsent image draft. */
 export type DraftAttachmentId = Branded<'DraftAttachmentId'>
 
+/** One transcript excerpt attached to the next composer submission. */
+export interface ComposerAnnotation {
+  readonly id: string
+  readonly anchorKey: string
+  readonly start: number
+  readonly end: number
+  readonly quote: string
+  readonly comment: string
+}
+
 /**
  * The scoped-event application verbs: the hub's bail listeners call these,
  * and the boolean answer IS the event's bail value (true ⟺ the machine
@@ -35,6 +45,10 @@ export interface SessionInput extends InputTarget {
   setDraft(text: string): void
   /** Append ordered browser-owned image ids; busy admission phases refuse. */
   addImages(ids: readonly DraftAttachmentId[]): boolean
+  /** Attach one commented transcript excerpt to the next submission. */
+  addAnnotation(annotation: ComposerAnnotation): boolean
+  /** Remove one pending transcript excerpt. */
+  removeAnnotation(id: string): void
   /** Remove one browser-owned image id. */
   removeImage(id: DraftAttachmentId): void
   /** Drop ids whose browser-owned objects no longer exist. */
@@ -75,6 +89,10 @@ export interface InputActions {
   setDraft(text: string): void
   /** Append ordered browser-owned image ids; busy admission phases refuse. */
   addImages(ids: readonly DraftAttachmentId[]): boolean
+  /** Attach one commented transcript excerpt to the next submission. */
+  addAnnotation?(annotation: ComposerAnnotation): boolean
+  /** Remove one pending transcript excerpt. */
+  removeAnnotation?(id: string): void
   /** Remove one browser-owned image id. */
   removeImage(id: DraftAttachmentId): void
   /** Drop ids whose browser-owned objects no longer exist. */
@@ -210,6 +228,8 @@ export interface InputState {
   readonly draft: string
   /** Ordered runtime-only image ids; bytes and URLs stay in ConversationController. */
   readonly imageIds: readonly DraftAttachmentId[]
+  /** Commented transcript excerpts included with the next ordinary message. */
+  readonly annotations?: readonly ComposerAnnotation[]
   /** Monotonic draft revision (span CAS compares against this). */
   readonly draftRev: number
   readonly phase: 'plain' | 'adjudicating' | 'claimed' | 'submitting'

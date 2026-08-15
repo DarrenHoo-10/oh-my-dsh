@@ -196,6 +196,8 @@ export interface SessionSummary {
   blank: boolean
   /** fork/spawn lineage (session.header.parentSession passthrough); absent for root sessions. */
   parentSessionId?: SessionId
+  /** Number of inherited seed events; new child events start at this seq. */
+  seedLength?: number
   /** Coarse durable origin used by navigation surfaces; never proves resumability. */
   origin?: 'subagent'
   /** Session working directory (header.cwd passthrough); absent when unrecorded. */
@@ -334,8 +336,11 @@ export interface SessionsApi {
    * directly, or the nearest workspace-owning ancestor when the source is a
    * subagent.
    */
-  fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number }>):
-  Promise<RpcResponse<{ sessionId: SessionId }>>
+  fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number; temporary?: boolean }>):
+  Promise<RpcResponse<{ sessionId: SessionId; seedLength: number }>>
+
+  /** Dispose a temporary side-chat fork. Ordinary sessions are rejected. */
+  discard(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ discarded: true }>>
 
   /**
    * Sends text and temporary image bytes to an ordinary session Agent after durable host admission.

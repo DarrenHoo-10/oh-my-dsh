@@ -271,10 +271,6 @@ describe('the worker entry over a mocked process boundary', () => {
   const installBoundary = (): { posted: { kind: string; message?: string }[] } => {
     const posted: { kind: string; message?: string }[] = []
     process.env.DSH_DIALOG_TITLE = 'Pick'
-    // Never invoke the post callback: it runs the worker's disconnect(), and
-    // this process is IPC-connected under the forks pool — severing vitest's
-    // own channel would kill the test worker. The real close lifecycle
-    // belongs to built-worker.e2e.ts.
     ;(process as { send?: unknown }).send = (message: { kind: string }) => {
       posted.push(message)
       return true

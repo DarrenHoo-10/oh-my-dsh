@@ -84,6 +84,36 @@ describe('a-priori root and declaration gate', () => {
   })
 })
 
+describe('existing slot imports', () => {
+  it('authorizes an existing slot without owning its declaration lifecycle', () => {
+    const core = new SlotCore()
+    mountFrame(core)
+    const disposeImporter = core.register(
+      { name: 'test.list', id: 'importer', imports: ['test.session'] },
+      Comp as never,
+    )
+
+    expect(core.entries('test.list')[0]?.imports).toEqual(['test.session'])
+    disposeImporter()
+    expect(core.specDynamic('test.session')).toEqual({ kind: 'single', scope: 'session' })
+  })
+
+  it('rejects missing imports and declaration/import overlap', () => {
+    const core = new SlotCore()
+    mountFrame(core)
+    expect(() => core.register(
+      { name: 'test.list', id: 'missing', imports: ['test.grandchild'] },
+      Comp as never,
+    )).toThrow('imported slot "test.grandchild" is not declared')
+    expect(() => core.register({
+      name: 'test.list',
+      id: 'overlap',
+      children: { 'test.grandchild': { kind: 'single', scope: 'root' } },
+      imports: ['test.grandchild'],
+    }, Comp as never)).toThrow('cannot be both declared and imported')
+  })
+})
+
 describe('lifecycle cascade (one axis)', () => {
   it('disposing a declaring entry collapses child slots and their contributions recursively', () => {
     const core = new SlotCore()

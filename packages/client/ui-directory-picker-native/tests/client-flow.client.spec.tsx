@@ -4,12 +4,21 @@ import { describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import type { DesktopRendererBridge } from '@deepseek-ai/dsh-client-connection/client'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { apply, inject } from '../src/client/index.ts'
 import { NativeDirectoryFlow } from '../src/client/flow.ts'
 import { apply as nodeApply } from '../src/index.ts'
 
-afterEach(cleanup)
+type DesktopWindow = { __DSH_DESKTOP__?: DesktopRendererBridge }
+const desktopWindow = globalThis as DesktopWindow
+const previousBridge = desktopWindow.__DSH_DESKTOP__
+
+afterEach(() => {
+  cleanup()
+  if (previousBridge === undefined) delete desktopWindow.__DSH_DESKTOP__
+  else desktopWindow.__DSH_DESKTOP__ = previousBridge
+})
 
 const HOLES = ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'] as const
 
@@ -147,6 +156,28 @@ describe('directory-picker-native client half', () => {
     const injected = (entry.inject as () => { pick: () => Promise<string | null> })()
     await expect(injected.pick()).resolves.toBe('/tmp/picked')
     expect(b.pickDirectory).toHaveBeenCalledOnce()
+  })
+
+  it('prefers the Electron main-process picker when the preload bridge exists', async () => {
+    const b = await bench()
+    const pickDirectory = vi.fn(async () => 'C:\\desktop-project')
+    desktopWindow.__DSH_DESKTOP__ = {
+      getBootManifest: async () => ({ rev: 'test', entries: [] }),
+      loadBundle: async () => '',
+      fetch: async () => ({ status: 200, headers: {} }),
+      pickDirectory,
+      cancelRequest: () => undefined,
+      openStream: () => undefined,
+      closeStream: () => undefined,
+      showShellMenu: () => undefined,
+    }
+    b.declare()
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = b.slots.entries(HOLES[0])[0]!
+    const injected = (entry.inject as () => { pick: () => Promise<string | null> })()
+    await expect(injected.pick()).resolves.toBe('C:\\desktop-project')
+    expect(pickDirectory).toHaveBeenCalledOnce()
+    expect(b.pickDirectory).not.toHaveBeenCalled()
   })
 
   it('runs one pick per open edge and reports the path to the latest onPicked', async () => {

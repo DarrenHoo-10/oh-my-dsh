@@ -12,10 +12,14 @@ function fakePanels(): PanelActions {
   return {
     setSidebar: vi.fn(),
     setDetails: vi.fn(),
+    setSideChat: vi.fn(),
     toggleSidebar: vi.fn(),
     setNarrow: vi.fn(),
     openDetails: vi.fn(),
     closeDetails: vi.fn(),
+    toggleBottomPanel: vi.fn(),
+    openSideChat: vi.fn(),
+    closeSideChat: vi.fn(),
   }
 }
 

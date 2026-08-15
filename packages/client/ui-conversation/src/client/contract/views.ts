@@ -1,5 +1,7 @@
 /** Shared conversation view, selection, and store-state contracts. */
 
+import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+
 /** Tool call identity as carried on the wire (branded upstream in connection). */
 export type CallId = string
 
@@ -11,6 +13,12 @@ export interface SelectionTarget { turnSeq: number; stepSeq?: number; callId?: C
  * entry's registration options (label falls back to the entry id).
  */
 export interface ViewTab { id: string; label: string }
+
+/** One contextual fork shown as a tab in the right-side chat panel. */
+export interface SideChatTab {
+  readonly id: string
+  readonly sessionId: SessionId
+}
 
 /**
  * Per-session state shared by conversation, chat-view, and details slots.
@@ -29,4 +37,10 @@ export interface ChatStoreState {
    * persisted snapshots from before this field rehydrate without it.
    */
   inspect: { callId: CallId } | null
+  /** Forked child Session that owns the contextual side chat. */
+  sideChatSessionId: SessionId | null
+  /** Contextual forks opened in the right-side panel. */
+  sideChatTabs: SideChatTab[]
+  /** Active right-side tab identity. */
+  activeSideChatTabId: string | null
 }

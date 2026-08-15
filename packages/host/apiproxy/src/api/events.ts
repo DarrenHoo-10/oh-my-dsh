@@ -130,6 +130,7 @@ export type HostFrame =
     sessionId: SessionId
     blank: boolean
     parentSessionId?: SessionId
+    seedLength?: number
     origin?: 'subagent'
     cwd?: string
     agentPreset?: string

@@ -177,7 +177,7 @@ export function ConversationRoot({
   // only `.composerStack`: overlay:true renders those as siblings, and sticky
   // on the fallback alone would leave Question/Approval panels at the content
   // end off-screen when the user is not pinned to the floor.
-  const composerSeat = (
+  const residentComposerSeat = (
     <div ref={seatResizeRef} className={css.composerSeat} data-composer-seat="">
       {composer}
     </div>
@@ -188,7 +188,7 @@ export function ConversationRoot({
       {renderSlot('conversation.session.header', {})}
       <div className={css.scrollBody} data-conversation-scroll="">
         {renderSlot('conversation.session', {})}
-        {composerSeat}
+        {residentComposerSeat}
       </div>
     </div>
   )

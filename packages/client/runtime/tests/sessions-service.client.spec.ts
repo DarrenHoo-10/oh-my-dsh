@@ -332,6 +332,28 @@ describe('cell (render-layer session kit)', () => {
     expect(historyCalls().map(c => (c.payload as { sessionId: string }).sessionId)).toEqual(['s1', 's2'])
   })
 
+  it('loads an off-stage conversation window without changing the current Session', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'main' }, { id: 'side' }])
+    b.svc.open(sid('main'))
+    await b.svc.openWindow(sid('side'))
+    expect(b.svc.list.getSnapshot().current).toBe('main')
+    expect(b.api.calls.filter(c => c.method === 'session.history')
+      .map(c => (c.payload as { sessionId: string }).sessionId)).toEqual(['main', 'side'])
+    await b.svc.openWindow(sid('side'))
+    expect(b.api.calls.filter(c => c.method === 'session.history')).toHaveLength(2)
+  })
+
+  it('rejects an off-stage window whose history load failed', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'main' }, { id: 'side' }])
+    b.api.onHistory = () => Promise.resolve(err({
+      code: 'internal', message: 'history unavailable', details: {},
+    }))
+    await expect(b.svc.openWindow(sid('side'))).rejects.toThrow('history unavailable')
+    expect(b.svc.binding(sid('side'))?.session.getSnapshot().openState).toBe('error')
+  })
+
   it('startup restore: a persisted selection validated by the first projection opens its window unprompted', async () => {
     const storage = new Map<string, string>([
       ['dsh.sessions.current', JSON.stringify({ sessionId: 's1' })],
@@ -521,6 +543,38 @@ describe('create', () => {
 })
 
 describe('fork', () => {
+  it('forwards temporary ownership and discards the child from the local projection', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'source', cwd: '/work' }])
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child'), seedLength: 12 }))
+    const child = await b.svc.fork({ sessionId: sid('source'), temporary: true })
+    expect(b.api.callsOf('session.fork')).toEqual([{ sessionId: 'source', temporary: true }])
+    expect(b.svc.list.getSnapshot().ids).not.toContain(child)
+    expect(b.svc.list.getSnapshot().byId[child]).toBeDefined()
+    expect(b.svc.list.getSnapshot().byId[child]?.seedLength).toBe(12)
+    expect(b.svc.binding(child)).toBeDefined()
+    expect(b.svc.scope(child)).toBeDefined()
+    const sourceSession = b.svc.binding(sid('source'))?.session
+    const childSession = b.svc.binding(child)?.session
+    if (sourceSession === undefined || childSession === undefined) throw new Error('fork bindings missing')
+    b.svc.handleHostEnvelope({
+      rpcId: 'child-running' as never,
+      payload: { type: 'host/session-status', sessionId: child, running: true },
+    })
+    expect(childSession.getSnapshot().running).toBe(true)
+    expect(sourceSession.getSnapshot().running).toBe(false)
+    await childSession.cancel()
+    expect(b.api.callsOf('session.cancel')).toEqual([{ sessionId: 'child' }])
+    expect(b.svc.list.getSnapshot().ids).toEqual([sid('source')])
+    await feedList(b, [{ id: 'source', cwd: '/work' }])
+    expect(b.svc.list.getSnapshot().ids).toEqual([sid('source')])
+    expect(b.svc.list.getSnapshot().byId[child]).toBeDefined()
+    await b.svc.discardTemporary(child)
+    expect(b.api.callsOf('session.discard')).toEqual([{ sessionId: 'child' }])
+    expect(b.svc.list.getSnapshot().byId[child]).toBeUndefined()
+    expect(b.svc.binding(child)).toBeUndefined()
+  })
+
   it.each([
     ['Roadmap', 'Roadmap (1)'],
     ['Roadmap (1)', 'Roadmap (2)'],
@@ -533,7 +587,7 @@ describe('fork', () => {
       payload: { type: 'session/projection', sessionId: sid('source'), key: 'title', value: sourceTitle, seq: 2 } as never,
     })
     await feedList(b, [{ id: 'source', cwd: '/work' }])
-    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child') }))
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child'), seedLength: 0 }))
     b.api.onRename = (payload) => {
       const { title } = payload as { title: string }
       return Promise.resolve(ok({ title, seq: 3 }))
@@ -556,7 +610,7 @@ describe('fork', () => {
   it('floors a fractional anchor to the real event seq the wire accepts', async () => {
     const b = bench()
     await feedList(b, [{ id: 'source', cwd: '/work' }])
-    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child') }))
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child'), seedLength: 0 }))
 
     // The frozen node of an interrupted turn carries turnEnd.seq - 0.9.
     await expect(b.svc.fork({ sessionId: sid('source'), atSeq: 41.1 })).resolves.toBe('child')
@@ -567,11 +621,11 @@ describe('fork', () => {
   it('does not rename without the title policy or a durable source title', async () => {
     const b = bench()
     await feedList(b, [{ id: 'source', cwd: '/work' }])
-    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child') }))
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child'), seedLength: 0 }))
     await expect(b.svc.fork({ sessionId: sid('source'), increaseTitle: true })).resolves.toBe('child')
     expect(b.api.callsOf('session.rename')).toEqual([])
 
-    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child-2') }))
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child-2'), seedLength: 0 }))
     await expect(b.svc.fork({ sessionId: sid('source') })).resolves.toBe('child-2')
     expect(b.api.callsOf('session.rename')).toEqual([])
   })
@@ -583,7 +637,7 @@ describe('fork', () => {
       payload: { type: 'session/projection', sessionId: sid('source'), key: 'title', value: 'Roadmap', seq: 2 } as never,
     })
     await feedList(b, [{ id: 'source' }])
-    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child') }))
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child'), seedLength: 0 }))
     b.api.onRename = () => Promise.resolve(err({
       code: 'title-invalid', message: 'rejected', details: { sessionId: sid('child') },
     }))

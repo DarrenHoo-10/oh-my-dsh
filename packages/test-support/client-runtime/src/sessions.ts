@@ -185,7 +185,7 @@ export class TestSessions implements ISessions {
   /** Calls observed on the service-level face, newest last. */
   readonly calls: {
     method: 'open' | 'openSubagent' | 'setSubagentCatalogOpen' | 'refreshSubagents'
-      | 'clear' | 'search' | 'fork'
+      | 'clear' | 'search' | 'fork' | 'openWindow' | 'discardTemporary'
     args: unknown[]
   }[] = []
 
@@ -331,11 +331,20 @@ export class TestSessions implements ISessions {
    * @param id - session id.
    * @returns the identity-stable bundle, or undefined for unknown sessions.
    */
-  provideInfo(id: string): SessionProvideInfo | undefined {
+  provideInfoFor(id: string): SessionProvideInfo | undefined {
     const record = this.records.get(id as SessionId)
     if (record === undefined) return undefined
     record.provideInfo ??= this.channel.materializeInfo(this.bindingOf(id as SessionId, record))
     return record.provideInfo
+  }
+
+  /**
+   * Bench compatibility alias for tests that inspect materialized bundles.
+   * @param id - session id.
+   * @returns the identity-stable bundle, or undefined for unknown sessions.
+   */
+  provideInfo(id: string): SessionProvideInfo | undefined {
+    return this.provideInfoFor(id)
   }
 
   /**
@@ -345,7 +354,7 @@ export class TestSessions implements ISessions {
    * @returns a definite or no-session provide bundle.
    */
   maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo {
-    return (id === undefined ? undefined : this.provideInfo(id)) ?? this.channel.maybeInfo
+    return (id === undefined ? undefined : this.provideInfoFor(id)) ?? this.channel.maybeInfo
   }
 
   /**
@@ -411,6 +420,16 @@ export class TestSessions implements ISessions {
       draft.current = id
       draft.currentAddress = undefined
     })
+  }
+
+  /**
+   * Record a non-selecting conversation-window load.
+   * @param id - Session whose conversation window should load.
+   */
+  openWindow(id: SessionId): Promise<void> {
+    this.calls.push({ method: 'openWindow', args: [id] })
+    this.require(id)
+    return Promise.resolve()
   }
 
   /** Open an existing fixture through its catalog address. */
@@ -484,9 +503,15 @@ export class TestSessions implements ISessions {
    * @param opts - source session id, optional cut anchor, and client title policy.
    * @returns the source id (no child record is created).
    */
-  fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId> {
+  fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean; temporary?: boolean }): Promise<SessionId> {
     this.calls.push({ method: 'fork', args: [opts] })
     return Promise.resolve(opts.sessionId)
+  }
+
+  /** Remove a temporary fixture Session. */
+  async discardTemporary(sessionId: SessionId): Promise<void> {
+    this.calls.push({ method: 'discardTemporary', args: [sessionId] })
+    await this.remove(sessionId)
   }
 
   /**

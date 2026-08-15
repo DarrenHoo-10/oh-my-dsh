@@ -53,7 +53,8 @@ function scriptedApi(overrides: {
         selected: { provider: r.payload.provider, model: r.payload.model },
       }),
       rename: r => ok(r, { title: 'renamed', seq: 0 }),
-      fork: r => ok(r, { sessionId: sid('s-fork') }),
+      fork: r => ok(r, { sessionId: sid('s-fork'), seedLength: 0 }),
+      discard: r => ok(r, { discarded: true as const }),
       prompt: r => ok(r, { accepted: true as const }),
       attachment: r => ok(r, {
         attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
@@ -204,19 +205,28 @@ describe('unary round trip', () => {
       .rejects.toThrow(/240 Unicode code points/)
   })
 
-  it('routes session fork with its optional cut anchor through the wire', async () => {
-    let seen: RpcRequest<{ sessionId: SessionId; atSeq?: number }> | undefined
+  it('routes temporary session fork and discard through the wire', async () => {
+    let seen: RpcRequest<{ sessionId: SessionId; atSeq?: number; temporary?: boolean }> | undefined
+    let discarded: SessionId | undefined
     const api = scriptedApi({
       sessions: {
         fork: (request) => {
           seen = request
-          return ok(request, { sessionId: sid('s-child') })
+          return ok(request, { sessionId: sid('s-child'), seedLength: 8 })
+        },
+        discard: (request) => {
+          discarded = request.payload.sessionId
+          return ok(request, { discarded: true as const })
         },
       },
     })
-    const response = await client(api).sessions.fork({ sessionId: sid('s-parent'), atSeq: 7 })
-    expect(seen?.payload).toEqual({ sessionId: 's-parent', atSeq: 7 })
-    expect(response.result).toEqual({ ok: true, value: { sessionId: 's-child' } })
+    const c = client(api)
+    const response = await c.sessions.fork({ sessionId: sid('s-parent'), atSeq: 7, temporary: true })
+    expect(seen?.payload).toEqual({ sessionId: 's-parent', atSeq: 7, temporary: true })
+    expect(response.result).toEqual({ ok: true, value: { sessionId: 's-child', seedLength: 8 } })
+    const discardResponse = await c.sessions.discard({ sessionId: sid('s-child') })
+    expect(discarded).toBe('s-child')
+    expect(discardResponse.result).toEqual({ ok: true, value: { discarded: true } })
   })
 
   it('routes workspace rename, delete, and ordering through the wire', async () => {

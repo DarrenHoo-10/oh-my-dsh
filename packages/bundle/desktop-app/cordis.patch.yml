@@ -1,0 +1,43 @@
+# The dsh-desktop-app overlay rides over dsh-base + dsh-web-app. It keeps the
+# same browser plugin graph and client UI rows, but removes the browser-only
+# carrier. The Electron renderer supplies the boot graph and bundles through
+# the preload IPC bridge, while the separate Node Host consumes the API proxy
+# directly through its shared Fetch carrier.
+
+- id: web-startup
+  disabled: true
+
+- id: webserver
+  disabled: true
+
+- id: web-runtime
+  disabled: true
+
+- id: client-hmr
+  disabled: true
+
+# The adaptive chooser is Web-bound because it probes webServer.host. A local
+# desktop shell pins the native Windows chooser and its renderless client face.
+- id: directory-picker
+  name: '@deepseek-ai/dsh-host-directory-picker-auto'
+  disabled: true
+
+- insert:
+    - id: desktop-directory-picker
+      name: '@deepseek-ai/dsh-host-directory-picker-native'
+      config: {}
+    - id: desktop-directory-picker-surface
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-native'
+
+# Keep this dual-face row active so the node half composes the client graph and
+# the renderer can load the browser half. Its Web route is skipped when no
+# webServer service exists, and the desktop transport calls the same Host
+# fetch handler through stdio IPC.
+- id: connection
+  name: '@deepseek-ai/dsh-client-connection'
+  inject: []
+  config:
+    trustedHosts: []
+
+# The Web runtime's prompt is intentionally absent. Desktop orientation is
+# owned by the Electron shell, not by a URL-bearing model-visible section.

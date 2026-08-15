@@ -87,6 +87,7 @@ description: 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agen
 |---|---|---|
 | `default` | 必填 | 调用方未指定时挂载的 preset id |
 | `roots` | `[]` | 按优先级排列的扫描目录；每项提供 `path`（开头的 `~` 会展开）与 `trust`（默认为 `user`） |
+| `moduleBaseUrl` | profile base | preset 组合中裸包使用的已安装运行时 URL；依赖无法从 profile 目录抵达时，打包宿主会设置此项 |
 | `includeUserRoot` | `true` | 在全部已配置根目录之后，追加 `<dshHome>/.agent-presets` 作为 `user` 根目录 |
 
 根目录不存在时视为不提供任何 preset，而非失败：用户根目录在写出第一个本地 preset 之前并不存在，而指定了没有任何根目录提供的默认值，在解析时本就会明确报错。
@@ -100,6 +101,8 @@ description: 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agen
 `includeUserRoot: false` 使 roster 只覆盖 `roots`。把 preset 限制在自有目录内的部署需要它，任何钉住确切 roster 的测试同样需要——否则将由这台机器真实的 `<dshHome>` 决定 roster 的内容。
 
 随附根目录仍然是装配事实：它位于已安装 app 自身配置的旁边，那个路径只有该 app 能解析。
+
+preset 内的相对配置项始终以其组合文件所在目录为基准解析。配置 `moduleBaseUrl` 后，裸包配置项从该基准解析；否则使用 preset scope 继承的 profile 基准。把依赖存入归档的打包宿主必须提供 `moduleBaseUrl`；新会话与恢复会话挂载其已记录 preset 时使用相同规则。
 
 ### 默认 preset 是一项用户设置
 

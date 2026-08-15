@@ -33,6 +33,7 @@ function observable<T>(initial: T) {
 function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.ReactNode) => React.ReactNode }) {
   const absentInfo: SessionMaybeProvideInfo = { sessionId: undefined, hooks: { session: undefined }, props: {} }
   const provide = observable<SessionMaybeProvideInfo>(absentInfo)
+  const list = observable<unknown>({ ids: [] })
   let currentId: string | undefined
   const infos = new Map<string, SessionProvideInfo>()
   const sessionEntries: StoredEntry[] = []
@@ -54,8 +55,9 @@ function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.Rea
     isLive: () => true,
     storeOf: () => undefined,
     sessions: {
-      list: observable<unknown>({ ids: [] }),
+      list,
       provideInfo: provide,
+      provideInfoFor: id => infos.get(id),
     },
     workspaces: { list: observable<unknown>({ items: [] }) },
   }
@@ -77,6 +79,7 @@ function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.Rea
         props: {},
       }
       infos.set(id, info)
+      list.set({ ids: [...infos.keys()] })
       if (currentId === id) provide.set(info)
       return info
     },
@@ -90,6 +93,30 @@ function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.Rea
 }
 
 describe('SessionProvider', () => {
+  it('binds an explicit child session without changing the current session', () => {
+    const seen: Record<string, unknown>[] = []
+    const h = makeHost({
+      root: renderSlot => (
+        <SessionProvider sessionId="child">
+          {() => renderSlot('k.session', {})}
+        </SessionProvider>
+      ),
+    })
+    h.addSession('main')
+    h.addSession('child')
+    h.registerSession({
+      component: (props: { useSession?: <S>(sel: (s: { sid: string }) => S) => S; sessionId?: string }) => {
+        seen.push({ sessionId: props.sessionId, read: props.useSession!(s => s.sid) })
+        return null
+      },
+      options: {},
+    })
+    h.current.set('main')
+    render(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
+    expect(seen.at(-1)).toEqual({ sessionId: 'child', read: 'child' })
+    expect(h.host.sessions.provideInfo.getSnapshot().sessionId).toBe('main')
+  })
+
   it('renders empty without a current session, switches to the body on select, falls back on an unresolvable id', () => {
     const h = makeHost({
       root: () => (

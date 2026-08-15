@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CENTER_MIN, clampWidth, computeColumns,
-  DETAILS_DEFAULT, DETAILS_MIN, SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MIN,
+  DETAILS_DEFAULT, SIDE_CHAT_MIN, SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MIN,
 } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 
 // Numeric preference form (0 = closed); helpers keep the scenario names readable.
@@ -27,10 +27,10 @@ describe('computeColumns', () => {
       .toEqual({ sidebar: SIDEBAR_COLLAPSED, center: 1920 - SIDEBAR_COLLAPSED, details: 0 })
   })
 
-  it('preferences beyond the clamp range are clamped before solving', () => {
+  it('sidebar clamps to its range while side chat keeps only its minimum', () => {
     const cols = computeColumns(1920, open(9999), open(1))
     expect(cols.sidebar).toBe(420)
-    expect(cols.details).toBe(300)
+    expect(cols.details).toBe(SIDE_CHAT_MIN)
     expect(computeColumns(1920, open(1), open(DETAILS_DEFAULT)).sidebar).toBe(SIDEBAR_MIN)
   })
 
@@ -48,9 +48,9 @@ describe('computeColumns', () => {
   })
 
   it('step 3: details auto-closes when its min still starves center — sidebar holds its preference', () => {
-    // 280 + 300 + 640 = 1220 > 1210 → details 0; sidebar untouched: center = 1210-280 = 930.
-    const cols = computeColumns(1210, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT))
-    expect(cols).toEqual({ sidebar: 280, center: 930, details: 0 })
+    const viewport = SIDEBAR_DEFAULT + SIDE_CHAT_MIN + CENTER_MIN - 1
+    const cols = computeColumns(viewport, open(SIDEBAR_DEFAULT), open(DETAILS_DEFAULT))
+    expect(cols).toEqual({ sidebar: 280, center: viewport - SIDEBAR_DEFAULT, details: 0 })
   })
 
   it('the sidebar never concedes: center absorbs the deficit below CENTER_MIN', () => {
@@ -60,12 +60,12 @@ describe('computeColumns', () => {
   })
 
   it('sidebar-closed narrow window: details concedes then auto-closes', () => {
-    const fits = computeColumns(SIDEBAR_COLLAPSED + DETAILS_MIN + CENTER_MIN, closed(300), open(DETAILS_DEFAULT))
-    expect(fits).toEqual({ sidebar: SIDEBAR_COLLAPSED, center: CENTER_MIN, details: DETAILS_MIN })
-    const starved = computeColumns(SIDEBAR_COLLAPSED + DETAILS_MIN + CENTER_MIN - 1, closed(300), open(DETAILS_DEFAULT))
+    const fits = computeColumns(SIDEBAR_COLLAPSED + SIDE_CHAT_MIN + CENTER_MIN, closed(300), open(DETAILS_DEFAULT))
+    expect(fits).toEqual({ sidebar: SIDEBAR_COLLAPSED, center: CENTER_MIN, details: SIDE_CHAT_MIN })
+    const starved = computeColumns(SIDEBAR_COLLAPSED + SIDE_CHAT_MIN + CENTER_MIN - 1, closed(300), open(DETAILS_DEFAULT))
     expect(starved).toEqual({
       sidebar: SIDEBAR_COLLAPSED,
-      center: DETAILS_MIN + CENTER_MIN - 1,
+      center: SIDE_CHAT_MIN + CENTER_MIN - 1,
       details: 0,
     })
   })

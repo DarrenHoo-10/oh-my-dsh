@@ -89,7 +89,10 @@ function npmPackageOf(id: string): string | undefined {
   return first
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  // Electron loads the same renderer over file://. Relative asset URLs keep
+  // the browser and desktop builds on one shell artifact.
+  base: mode === 'desktop' || process.env.DSH_DESKTOP === '1' ? './' : '/',
   plugins: [rejectStandaloneServe(), react()],
   build: {
     sourcemap: true,
@@ -157,4 +160,4 @@ export default defineConfig({
     // vendored loader index.ts: envData falls to its default branch.
     'process.env.CORDIS_SHARED': 'undefined',
   },
-})
+}))

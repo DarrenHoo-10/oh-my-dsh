@@ -563,8 +563,10 @@ describe('boot', () => {
     const harness = tmp()
     const absolutePlugin = join(dir, 'absolute.mjs')
     const shadow = join(dir, 'node_modules', '@deepseek-ai', 'dsh-system-prompt')
+    const configOnly = join(dir, 'node_modules', 'config-only-plugin')
     const harnessPlugin = join(harness, 'node_modules', '@deepseek-ai', 'dsh-system-prompt')
     mkdirSync(shadow, { recursive: true })
+    mkdirSync(configOnly, { recursive: true })
     mkdirSync(harnessPlugin, { recursive: true })
     writeFileSync(join(shadow, 'package.json'), JSON.stringify({
       name: '@deepseek-ai/dsh-system-prompt',
@@ -574,6 +576,17 @@ describe('boot', () => {
     writeFileSync(join(shadow, 'index.mjs'), [
       'export function apply(ctx) {',
       '  ctx.provide("shadowPluginLoaded", true)',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(configOnly, 'package.json'), JSON.stringify({
+      name: 'config-only-plugin',
+      type: 'module',
+      exports: './index.mjs',
+    }))
+    writeFileSync(join(configOnly, 'index.mjs'), [
+      'export function apply(ctx) {',
+      '  ctx.provide("configOnlyPluginLoaded", true)',
       '}',
       '',
     ].join('\n'))
@@ -595,6 +608,8 @@ describe('boot', () => {
       "  name: '@deepseek-ai/dsh-system-prompt'",
       '- id: relative',
       "  name: './relative.mjs'",
+      '- id: config-only',
+      '  name: config-only-plugin',
     ]
     const configOwnedPath = join(dir, 'config-owned.cordis.yml')
     writeFileSync(configOwnedPath, [...entries, ''].join('\n'))
@@ -610,6 +625,7 @@ describe('boot', () => {
       expect(configOwned.get('shadowPluginLoaded')).toBe(true)
       expect(configOwned.get('systemPrompt')).toBeUndefined()
       expect(configOwned.get('relativePluginLoaded')).toBe(true)
+      expect(configOwned.get('configOnlyPluginLoaded')).toBe(true)
     } finally {
       await configOwned.fiber.dispose()
     }
@@ -619,6 +635,7 @@ describe('boot', () => {
       expect(ctx.get('harnessPluginLoaded')).toBe(true)
       expect(ctx.get('shadowPluginLoaded')).toBeUndefined()
       expect(ctx.get('relativePluginLoaded')).toBe(true)
+      expect(ctx.get('configOnlyPluginLoaded')).toBe(true)
       expect(ctx.get('absolutePluginLoaded')).toBe(true)
     } finally {
       await ctx.fiber.dispose()

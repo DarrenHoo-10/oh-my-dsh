@@ -7,6 +7,7 @@ import {
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ClientConnectionRpc } from '../rpc.ts'
 import { randomUuid } from './random-uuid.ts'
+import { desktopFetch, toDesktopResponse } from './desktop-bridge.ts'
 
 const INTERNAL_BASE = 'http://dsh.internal'
 const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/
@@ -36,6 +37,40 @@ export function createWebConnectionRpc(): ClientConnectionRpc {
           ...signal === undefined ? {} : { signal },
         },
       )
+      if (!response.ok) {
+        throw new Error(`transport failure for ${channel}/${endpoint}: HTTP ${response.status}`)
+      }
+      const full = serverResponseSchema.parse(await response.json())
+      if (full.rpcId !== rpcId) {
+        throw new Error(`rpcId mismatch for ${endpoint}: sent ${rpcId}, got ${full.rpcId}`)
+      }
+      return full.result
+    },
+  }
+}
+
+/**
+ * Create the generic RPC caller backed by the Electron preload bridge.
+ * @returns a connection RPC implementation for the desktop carrier.
+ */
+export function createDesktopConnectionRpc(): ClientConnectionRpc {
+  return {
+    async call(channel, endpoint, payload, signal) {
+      assertTarget(channel, endpoint)
+      const rpcId = RpcId(randomUuid())
+      const message: ClientRequest = {
+        type: 'client-request',
+        rpcId,
+        method: endpoint,
+        payload,
+      }
+      const value = await desktopFetch({
+        path: `${channel}/${endpoint}`,
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(message),
+      }, signal)
+      const response = toDesktopResponse(value)
       if (!response.ok) {
         throw new Error(`transport failure for ${channel}/${endpoint}: HTTP ${response.status}`)
       }

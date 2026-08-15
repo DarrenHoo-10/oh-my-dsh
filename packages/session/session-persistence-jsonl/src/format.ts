@@ -57,7 +57,7 @@ export function toHeaderLine(header: SessionHeader): HeaderLine {
     ...header.cwd !== undefined ? { cwd: header.cwd } : {},
     ...header.parentSession !== undefined ? { parentSession: header.parentSession } : {},
     ...header.seedLength !== undefined ? { seedLength: header.seedLength } : {},
-    ...header.origin !== undefined ? { origin: header.origin } : {},
+    ...header.origin === 'subagent' ? { origin: header.origin } : {},
     delegationDepth: header.delegationDepth ?? 0,
     ...header.agentPreset !== undefined ? { agentPreset: header.agentPreset } : {},
   }

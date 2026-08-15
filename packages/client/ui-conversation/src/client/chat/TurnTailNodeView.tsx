@@ -1,4 +1,5 @@
 import { memo } from 'react'
+import { IconShareOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChatNodeViewProps, TurnTailOwnerProps } from '../contract/slots.ts'
 import { MessageIconActions } from './MessageIconActions.tsx'
@@ -10,7 +11,7 @@ type TurnTailNodeViewProps = ChatNodeViewProps<'turn-tail'>
 
 /** Turn-local actions and feature tail over the Location index, independent of Assistant placement. */
 export const TurnTailNodeView = memo(function TurnTailNodeView({
-  node, openFile, forkAt, renderSlot, renderSlotChain, t, useSession,
+  node, openFile, forkAt, returnToParent, renderSlot, renderSlotChain, t, useSession,
 }: TurnTailNodeViewProps) {
   const data = node.data
   const hasLaterChatNode = useSession(snapshot =>
@@ -32,11 +33,22 @@ export const TurnTailNodeView = memo(function TurnTailNodeView({
   const assistantActions = messageId === undefined
     ? null
     : renderSlot('conversation.chat.assistant-actions', { messageId })
+  const text = assistantText(closing.blocks)
+  const returnAction = returnToParent === undefined || text.trim() === ''
+    ? null
+    : (
+      <Tooltip label={t('sideChat.returnToMain')} side="bottom">
+        <button type="button" className={css.returnAction} aria-label={t('sideChat.returnToMain')}
+          onClick={() => { returnToParent(closing.finalNode.seq, text) }}>
+          <IconShareOutline16 />
+        </button>
+      </Tooltip>
+    )
   return (
     <div className={css.root} data-turn-tail={data.turn} data-time-hover-root>
       {tail}
       <MessageIconActions
-        text={assistantText(closing.blocks)}
+        text={text}
         time={closing.time}
         runMs={runMs}
         ttftMs={data.ttftMs}
@@ -45,7 +57,7 @@ export const TurnTailNodeView = memo(function TurnTailNodeView({
         onBranch={() => { forkAt(closing.finalNode.seq) }}
         branchUnavailable={data.branchUnavailable || hasLaterChatNode}
         className={css.actions}
-        extraActions={assistantActions}
+        extraActions={<>{assistantActions}{returnAction}</>}
         t={t}
       />
     </div>

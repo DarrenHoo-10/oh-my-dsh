@@ -14,7 +14,7 @@ DeepSeek Harness 目前处于 _开发者预览_ 阶段，正在快速迭代。**
 
 ### Windows 桌面应用
 
-下载适用于 Windows x64 的 [deepseek harness.exe](https://github.com/DarrenHoo-10/oh-my-dsh/releases/download/v0.1.0-rc.5/deepseek%20harness.exe)，然后运行安装器。安装器已包含 Electron 和 Harness 运行时，无需另行安装 Node.js 或 pnpm。
+下载适用于 Windows x64 的 [deepseek harness.exe](https://github.com/DarrenHoo-10/oh-my-dsh/releases/download/v0.1.0-rc.5/deepseek.harness.exe)，然后运行安装器。安装器已包含 Electron 和 Harness 运行时，无需另行安装 Node.js 或 pnpm。
 
 首次启动时，请选择工作区，并在设置中配置模型提供方凭据。该开发者预览版本尚未进行代码签名，因此 Windows SmartScreen 可能显示警告；继续安装前，请核对 Release 地址和 SHA-256 校验和。
 

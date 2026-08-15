@@ -14,7 +14,7 @@ DeepSeek Harness is currently in _developer preview_ and is iterating rapidly. *
 
 ### Windows desktop app
 
-Download [deepseek harness.exe for Windows x64](https://github.com/DarrenHoo-10/oh-my-dsh/releases/download/v0.1.0-rc.5/deepseek%20harness.exe) and run the installer. The installer includes Electron and the Harness runtime, so Node.js and pnpm are not required.
+Download [deepseek harness.exe for Windows x64](https://github.com/DarrenHoo-10/oh-my-dsh/releases/download/v0.1.0-rc.5/deepseek.harness.exe) and run the installer. The installer includes Electron and the Harness runtime, so Node.js and pnpm are not required.
 
 On first launch, select a workspace and configure model-provider credentials in Settings. This developer-preview build is not code-signed, so Windows SmartScreen may display a warning; verify the release URL and SHA-256 checksum before continuing.
 

@@ -113,6 +113,22 @@ describe('SessionLogDownloadController', () => {
     expect(click).toHaveBeenCalledOnce()
   })
 
+  it('streams the archive through the desktop bridge and opens the native save dialog', async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce({ status: 200, headers: {} })
+      .mockResolvedValueOnce({ status: 200, headers: {}, body: 'emlw', bodyEncoding: 'base64' })
+    const saveFile = vi.fn(async () => true)
+    vi.stubGlobal('__DSH_DESKTOP__', { fetch, saveFile })
+    const controller = new SessionLogDownloadController()
+
+    await controller.download(SID)
+
+    expect(fetch).toHaveBeenNthCalledWith(1, expect.any(String), expect.objectContaining({ method: 'HEAD' }))
+    expect(fetch).toHaveBeenNthCalledWith(2, expect.any(String), expect.objectContaining({ method: 'GET' }))
+    expect(saveFile).toHaveBeenCalledWith('dsh-session-session-export-controller.zip', 'emlw')
+    expect(controller.store.getSnapshot().bySession[SID]?.status).toBe('success')
+  })
+
   it('defaults dialog openness when state is externally cleared before settlement', async () => {
     const success = Promise.withResolvers<Response>()
     const successful = new SessionLogDownloadController(() => success.promise, vi.fn())

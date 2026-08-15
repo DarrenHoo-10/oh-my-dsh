@@ -13,6 +13,7 @@ import type { Win32DialogWorkerMessage } from '../src/win32-dialog-worker.ts'
 
 class FakeWorker extends EventEmitter implements Win32DialogWorkerLike {
   kill = vi.fn(() => true)
+  disconnect = vi.fn()
   post(message: Win32DialogWorkerMessage): void {
     this.emit('message', message)
   }
@@ -49,11 +50,13 @@ describe('pickWin32Directory', () => {
     first.worker.post({ kind: 'done', path: 'C:\\picked' })
     await expect(picked).resolves.toBe('C:\\picked')
     expect(first.close).not.toHaveBeenCalled()
+    expect(first.worker.disconnect).toHaveBeenCalledOnce()
 
     const second = harness()
     const cancelled = pickWin32Directory(live(), second.internals)
     second.worker.post({ kind: 'done', path: null })
     await expect(cancelled).resolves.toBeNull()
+    expect(second.worker.disconnect).toHaveBeenCalledOnce()
   })
 
   it('rejects on a reported dialog failure, a worker crash, and a silent exit', async () => {
@@ -61,6 +64,7 @@ describe('pickWin32Directory', () => {
     const failing = pickWin32Directory(live(), reported.internals)
     reported.worker.post({ kind: 'error', message: 'CoCreateInstance failed' })
     await expect(failing).rejects.toThrow('win32 folder dialog failed: CoCreateInstance failed')
+    expect(reported.worker.disconnect).toHaveBeenCalledOnce()
 
     const crashed = harness()
     const crashing = pickWin32Directory(live(), crashed.internals)

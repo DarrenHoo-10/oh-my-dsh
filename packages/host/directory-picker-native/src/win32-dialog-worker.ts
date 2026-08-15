@@ -28,9 +28,7 @@ if (process.send === undefined) throw new Error('win32-dialog-worker must run as
 const send = process.send.bind(process)
 
 const post = (message: Win32DialogWorkerMessage): void => {
-  // Flush before closing the channel; the process exits when the loop drains.
-  /* v8 ignore next 3 -- disconnect needs a live IPC channel the unit lane must not sever (built-worker.e2e.ts owns the real close path). */
-  send(message, () => { if (process.connected) process.disconnect() })
+  send(message)
 }
 
 // A settled driver (or a dead parent) must not orphan a dialog still on screen.

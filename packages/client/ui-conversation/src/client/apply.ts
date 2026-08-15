@@ -14,7 +14,8 @@ import type { ViewTab } from './contract/views.ts'
 import type {
   ApprovalWait, ChatNodeTurnDataInjected, ChatScrollPosition, ChatViewInjected, ComposerBarInjected,
   ComposerChainProps, ConversationInjected, ConversationSessionHeaderInjected, ConversationSessionInjected,
-  DetailsInjected,
+  DetailsInjected, SessionComposerInjected,
+  SideChatInjected,
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
 import { createChatStore } from './stores.ts'
@@ -33,8 +34,10 @@ import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { queueDockEntry } from './queue/QueueDock.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
+import { SessionComposer } from './skeleton/SessionComposer.tsx'
 import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
-import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
+import { TerminalPanel } from './skeleton/TerminalPanel.tsx'
+import { SideChatPanel } from './skeleton/SideChatPanel.tsx'
 import { en, NS, zh, type ConversationKey } from './locales.ts'
 import { registerConversationNodes } from './conversation-nodes/register.ts'
 import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
@@ -199,6 +202,7 @@ export function apply(ctx: Context): void {
     children: {
       'conversation.session': { kind: 'single', scope: 'session' },
       'conversation.session.header': { kind: 'single', scope: 'session' },
+      'conversation.session.composer': { kind: 'single', scope: 'session' },
       'conversation.composer': { kind: 'chain', scope: 'session' },
       'conversation.composer.bar': { kind: 'single', scope: 'session-maybe' },
       'conversation.input.overlay': { kind: 'list', scope: 'session' },
@@ -265,6 +269,7 @@ export function apply(ctx: Context): void {
     inject: (): ConversationSessionHeaderInjected => ({
       views,
       open: (id) => { sessions.open(id) },
+      toggleBottomPanel: () => { layout.toggleBottomPanel() },
     }),
   }, ConversationSessionHeader)
 
@@ -386,10 +391,27 @@ export function apply(ctx: Context): void {
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
       const conversation = concreteConversation(ctx)
       const scoped = scopedConversation(sessions, sessionId)
+      const list = sessions.list.getSnapshot()
+      const summary = list.byId[sessionId]
+      const parentId = summary?.parentId
+      const isTemporarySideChat = parentId !== undefined && !list.ids.includes(sessionId)
       return {
         openDetails: (target) => {
           actions.select(target)
           layout.openDetails()
+        },
+        addToConversation: (annotation) => { inputHub.shell(sessionId).addAnnotation(annotation) },
+        removeFromConversation: (id) => { inputHub.shell(sessionId).removeAnnotation(id) },
+        askInSideChat: (annotation) => {
+          void sessions.fork({ sessionId, increaseTitle: true, temporary: true })
+            .then((childId) => {
+              inputHub.shell(childId).addAnnotation(annotation)
+              actions.startSideChat(childId)
+              layout.openSideChat()
+            })
+            .catch(() => {
+              // A failed fork leaves the source Session and layout untouched.
+            })
         },
         fileMentions: owner => ctx.get('chatFileMentions')?.forClosing(owner),
         openFile: (path) => {
@@ -421,9 +443,35 @@ export function apply(ctx: Context): void {
               // Fork or child-rename failure keeps the source view untouched.
             })
         },
+        ...isTemporarySideChat ? {
+          returnToParent: (seq, text) => inputHub.shell(parentId).addAnnotation({
+            id: `sidechat:${sessionId}:${seq}`,
+            anchorKey: `sidechat:${sessionId}:${seq}`,
+            start: 0,
+            end: text.length,
+            quote: text,
+            comment: '',
+          }),
+        } : {},
       }
     },
   }, ChatView)
+
+  slots.register({
+    name: 'conversation.session.composer',
+    imports: [
+      'conversation.composer',
+      'conversation.composer.bar',
+      'conversation.input.overlay',
+      'conversation.input.dock',
+      'conversation.composer.dock',
+      'conversation.input.left',
+      'conversation.input.right',
+    ],
+    inject: (sessionId: SessionId): SessionComposerInjected => ({
+      hooks: { composerBlock: composerBlocks.storeFor(sessionId) },
+    }),
+  }, SessionComposer)
 
   // Session stats stick with the composer (composer.dock = stats-line family).
   slots.register({ name: 'conversation.composer.dock', id: 'stats', order: 0, locale: NS }, StatsLine)
@@ -450,7 +498,38 @@ export function apply(ctx: Context): void {
     store: chatStore,
     inject: (): DetailsInjected => ({
       closeDetails: () => { layout.closeDetails() },
+      openLocation: () => {
+        const current = sessions.list.getSnapshot().current
+        const cwd = current === undefined ? undefined : sessions.list.getSnapshot().byId[current]?.cwd
+        if (cwd !== undefined) void workspaces.openPath(cwd)
+      },
     }),
-  }, DetailsPanel)
+  }, TerminalPanel)
+
+  slots.inject('sidechat', function* () {
+    yield slots.register({
+      name: 'sidechat',
+      locale: NS,
+      imports: ['conversation.view', 'conversation.session.composer'],
+      store: chatStore,
+      inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): SideChatInjected => ({
+        closeSideChat: () => { layout.closeSideChat() },
+        openConversationWindow: async (childId) => { await sessions.openWindow(childId) },
+        discardSideChat: async (childId) => { await sessions.discardTemporary(childId) },
+        openLocation: (sessionId) => {
+          const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+          if (cwd !== undefined) void workspaces.openPath(cwd)
+        },
+        createSideChat: () => {
+          void sessions.fork({ sessionId, increaseTitle: true, temporary: true }).then((childId) => {
+            actions.openSideChat(childId)
+            layout.openSideChat()
+          }).catch(() => {
+            // A failed fork leaves the active side-chat tab untouched.
+          })
+        },
+      }),
+    }, SideChatPanel)
+  })
 
 }

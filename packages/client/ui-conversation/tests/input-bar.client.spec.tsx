@@ -617,6 +617,47 @@ describe('Enter semantics', () => {
 })
 
 describe('running and lock semantics', () => {
+  it('Escape stops only the running composer that received the key', () => {
+    const main = bench({ running: true, draft: 'main draft' })
+    const side = bench({ running: true, draft: 'side draft' })
+
+    fireEvent.keyDown(side.textarea, { key: 'Escape' })
+
+    expect(side.stop).toHaveBeenCalledTimes(1)
+    expect(main.stop).not.toHaveBeenCalled()
+    expect(side.sink).not.toHaveBeenCalled()
+    expect(side.shell.snapshot.draft).toBe('side draft')
+  })
+
+  it('Escape does not stop an idle, composing, repeated, or one-shot composer', () => {
+    const idle = bench({ draft: 'idle' })
+    fireEvent.keyDown(idle.textarea, { key: 'Escape' })
+    expect(idle.stop).not.toHaveBeenCalled()
+
+    const composing = bench({ running: true, draft: 'composing' })
+    fireEvent.compositionStart(composing.textarea)
+    fireEvent.keyDown(composing.textarea, { key: 'Escape' })
+    expect(composing.stop).not.toHaveBeenCalled()
+
+    const repeated = bench({ running: true, draft: 'repeated' })
+    fireEvent.keyDown(repeated.textarea, { key: 'Escape', repeat: true })
+    expect(repeated.stop).not.toHaveBeenCalled()
+
+    const oneShot = bench({
+      running: true,
+      subagent: {
+        address: {
+          parentSessionId: 'parent' as SessionId,
+          childSessionId: SID,
+          mode: 'one-shot',
+        },
+        parentAvailable: true,
+      },
+    })
+    fireEvent.keyDown(oneShot.textarea, { key: 'Escape' })
+    expect(oneShot.stop).not.toHaveBeenCalled()
+  })
+
   it('running keeps the input free (typing + Enter queue) while the primary turns stop', () => {
     const { textarea, button, stop, sink } = bench({ running: true, draft: '排队消息' })
     expect(textarea.disabled).toBe(false)

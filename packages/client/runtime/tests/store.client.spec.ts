@@ -122,6 +122,29 @@ describe('createSnapshotStore', () => {
     const revived = createSnapshotStore(init(), { persist: { name: 'spec-store' } })
     expect(revived.getSnapshot().a.n).toBe(42)
   })
+
+  it('projects process-local fields out of storage and stale hydration', () => {
+    const backing = new Map<string, string>([[
+      'spec-projected',
+      JSON.stringify({ durable: 'kept', transient: 'stale' }),
+    ]])
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => { backing.set(k, v) },
+      removeItem: (k: string) => { backing.delete(k) },
+    })
+    const project = (state: { durable: string; transient: string }) => ({
+      ...state,
+      transient: '',
+    })
+    const store = createSnapshotStore(
+      { durable: '', transient: '' },
+      { persist: { name: 'spec-projected', project } },
+    )
+    expect(store.getSnapshot()).toEqual({ durable: 'kept', transient: '' })
+    store.update((draft) => { draft.transient = 'runtime-only' })
+    expect(JSON.parse(backing.get('spec-projected')!)).toEqual({ durable: 'kept', transient: '' })
+  })
 })
 
 describe('defineStore', () => {

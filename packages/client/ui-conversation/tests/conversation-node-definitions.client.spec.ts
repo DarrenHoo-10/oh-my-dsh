@@ -415,6 +415,44 @@ describe('built-in conversation node Definitions', () => {
     ])
   })
 
+  it('anchors the first live side-chat question after the inherited seed boundary', () => {
+    const value = assembler([
+      at(0, 'turn/start', { turn: 1 }),
+      at(1, 'user/message', textMessage('seed-user', 'inherited'), { surfaceOp: 'append' }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: assistantMessage('seed-assistant', 'inherited answer'),
+      }, { surfaceOp: 'append' }),
+      at(4, 'step/end', { turn: 1, step: 1 }),
+      at(5, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+      at(6, 'session/end-seed', {}),
+    ])
+    value.append(at(7, 'turn/start', { turn: 2 }))
+    value.append(at(8, 'step/start', { turn: 2, step: 2 }))
+    value.append(at(9, 'user/message', textMessage(
+      'side-user',
+      '[选中文本 1]\n双人模式\n\n[问题]\n啥意思',
+    ), { surfaceOp: 'append' }))
+    value.append(at(10, 'assistant/message', {
+      turn: 2,
+      step: 2,
+      message: assistantMessage('side-assistant', '侧边回答'),
+    }, { surfaceOp: 'append' }))
+    value.flush()
+
+    const current = snapshot(value)
+    const live = current.order
+      .map(key => current.nodes.get(key))
+      .filter((candidate): candidate is ChatConversationViewNode =>
+        candidate !== undefined && candidate.anchorSeq >= 6)
+    expect(live.map(candidate => [candidate.kind, candidate.anchorSeq])).toEqual([
+      ['user', 9],
+      ['assistant-step', 10],
+    ])
+  })
+
   it('keeps branching unavailable when a tool result follows the closing Assistant', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),

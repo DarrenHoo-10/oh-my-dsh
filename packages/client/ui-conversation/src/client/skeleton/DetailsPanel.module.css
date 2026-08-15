@@ -7,7 +7,7 @@
   flex-direction: column;
   height: 100%;
   min-width: 0;
-  border-left: 1px solid var(--dsw-alias-border-l2);
+  border-top: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-base);
 }
 
@@ -44,6 +44,19 @@
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
 }
+
+.headerActions { display: flex; align-items: center; gap: 4px; }
+
+.openLocation {
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 9px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.openLocation:hover { background: var(--dsw-alias-interactive-bg-hover); }
 
 .close:hover {
   background: var(--dsw-alias-interactive-bg-hover);

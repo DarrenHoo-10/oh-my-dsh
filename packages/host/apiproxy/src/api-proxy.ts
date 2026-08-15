@@ -8,7 +8,7 @@ import { mkdir, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
-import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -534,6 +534,7 @@ function sessionListUpdatedAt(header: SessionHeader, metadata: SessionListMetada
 /** Shared Session-header projection for list baselines and creation frames. */
 function sessionListFields(header: SessionHeader, events: readonly SessionEvent[] = []): {
   parentSessionId?: SessionId
+  seedLength?: number
   origin?: 'subagent'
   cwd?: string
   agentPreset?: string
@@ -544,7 +545,8 @@ function sessionListFields(header: SessionHeader, events: readonly SessionEvent[
   const agentPreset = resolveSessionPreset({ header, events })
   return {
     ...header.parentSession === undefined ? {} : { parentSessionId: header.parentSession },
-    ...header.origin === undefined ? {} : { origin: header.origin },
+    ...header.seedLength === undefined ? {} : { seedLength: header.seedLength },
+    ...header.origin === 'subagent' ? { origin: header.origin } : {},
     ...header.cwd === undefined ? {} : { cwd: header.cwd },
     ...agentPreset === undefined ? {} : { agentPreset },
   }
@@ -1125,6 +1127,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const presetSwitches = new Map<SessionId, Promise<unknown>>()
   /** Client-chosen identity creation/resume, deduplicated across concurrent retries. */
   const sessionCreations = new Map<SessionId, Promise<Agent>>()
+  /** Consumer handles for non-persistent side-chat forks, keyed until explicit discard. */
+  const temporaryForks = new Map<SessionId, AgentHandle>()
   /** Serializes path ownership and explicit title checks with Workspace mutations. */
   let workspaceCreationChain = Promise.resolve()
   const pendingQuestions = new Map<RpcId, PendingQuestion>()
@@ -1732,13 +1736,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         ...projections === undefined ? {} : { projections },
       }
     }
-    const items = ctx.sessions.list().map(summarizeAttached)
+    const items = ctx.sessions.list()
+      .filter(session => session.header.origin !== 'sidechat')
+      .map(summarizeAttached)
     signal?.throwIfAborted()
     const attached = new Set(items.map(item => item.sessionId))
     const persistence = ctx.get('sessionPersistence')
     if (persistence !== undefined) {
       const cold = (await persistence.list(signal))
-        .filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
+        .filter(meta => meta.origin !== 'sidechat' && !attached.has(meta.id) && meta.cwd !== undefined)
       signal?.throwIfAborted()
       for (let offset = 0; offset < cold.length; offset += COLD_SUMMARY_BATCH_SIZE) {
         signal?.throwIfAborted()
@@ -2361,7 +2367,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async fork(request) {
-        const { sessionId, atSeq } = request.payload
+        const { sessionId, atSeq, temporary = false } = request.payload
         let source: SessionReadState
         try {
           source = await readSessionState(sessionId)
@@ -2403,14 +2409,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         let cut = boundary.seq + 1
         while (cut < events.length && events[cut]?.type !== 'turn/start') cut++
         let workspace: Workspace | undefined
-        try {
-          workspace = await forkWorkspace(source)
-        } catch (error: unknown) {
-          return err(request, {
-            code: 'internal',
-            message: `failed to resolve fork workspace for session "${sessionId}": ${String(error)}`,
-            details: {},
-          })
+        if (!temporary) {
+          try {
+            workspace = await forkWorkspace(source)
+          } catch (error: unknown) {
+            return err(request, {
+              code: 'internal',
+              message: `failed to resolve fork workspace for session "${sessionId}": ${String(error)}`,
+              details: {},
+            })
+          }
         }
         const childId = `session-${randomUUID()}` as SessionId
         // The child inherits the parent's composition for the same reason a
@@ -2420,13 +2428,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // plane, composing nothing would leave the child with no tools at all.
         const forkComposition = await composeAgent(resolveSessionPreset(source))
         try {
-          await ctx.agents.create({
+          const handle = await ctx.agents.create({
             sessionId: childId,
             seed: events.slice(0, cut),
             meta: {
               ...source.header.cwd === undefined ? {} : { cwd: source.header.cwd },
               parentSession: source.id,
               seedLength: cut,
+              ...temporary ? { origin: 'sidechat' as const } : {},
               ...forkComposition.agentPreset === undefined
                 ? {}
                 : { agentPreset: forkComposition.agentPreset },
@@ -2434,6 +2443,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             agentOptions: agentOptions(),
             setup: forkComposition.setup,
           })
+          if (temporary) temporaryForks.set(childId, handle)
         } catch (error: unknown) {
           return err(request, {
             code: 'internal',
@@ -2444,7 +2454,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // An ordinary source keeps its direct Workspace. A subagent source is
         // not listed there, so its ordinary fork joins the nearest owning
         // ancestor instead. The child is already published if attach fails.
-        if (workspace !== undefined) {
+        if (!temporary && workspace !== undefined) {
           try {
             await workspace.attachSession(childId)
           } catch (error: unknown) {
@@ -2455,7 +2465,30 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             })
           }
         }
-        return ok(request, { sessionId: childId })
+        return ok(request, { sessionId: childId, seedLength: cut })
+      },
+
+      async discard(request) {
+        const { sessionId } = request.payload
+        const handle = temporaryForks.get(sessionId)
+        if (handle === undefined) {
+          return err(request, {
+            code: 'session-not-found',
+            message: `session "${sessionId}" is not an active temporary fork`,
+            details: { sessionId },
+          })
+        }
+        try {
+          await handle.dispose()
+          temporaryForks.delete(sessionId)
+          return ok(request, { discarded: true as const })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'internal',
+            message: `failed to discard temporary session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
       },
 
       async prompt(request) {
@@ -3544,6 +3577,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         let archivedSessionIds = ctx.workspaceRegistry.archivedSessionIds
         const disposers = [
           ctx.on('session/created', (session: Session) => {
+            if (session.header.origin === 'sidechat') return
             queue.push(frame({
               type: 'host/session-added',
               sessionId: session.id,
@@ -3555,6 +3589,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             }))
           }),
           ctx.on('session/disposed', (session: Session) => {
+            if (session.header.origin === 'sidechat') return
             queue.push(frame({ type: 'host/session-removed', sessionId: session.id }))
           }),
           ctx.on('agent/status', ({ agent, status }: { agent: Agent; status: AgentStatus }) => {

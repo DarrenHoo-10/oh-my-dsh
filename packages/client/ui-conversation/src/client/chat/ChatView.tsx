@@ -12,7 +12,8 @@
 // ChatNodeSeat subscribes to one Node key, so Assistant deltas and Tool
 // lifecycle updates replace only their own row without remounting it.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { FormEvent, SyntheticEvent } from 'react'
 import type { ConversationTimelineSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
@@ -33,6 +34,57 @@ interface PagingAnchor {
   key: string
   /** Row top relative to the scrollport after the latest user scroll. */
   top: number
+}
+
+interface SelectedExcerpt {
+  readonly text: string
+  readonly anchorKey: string
+  readonly start: number
+  readonly end: number
+  readonly left: number
+  readonly top: number
+}
+
+interface AnnotationEditor extends SelectedExcerpt {
+  readonly id: string
+}
+
+interface HighlightRegistry {
+  set(name: string, highlight: Highlight): void
+  delete(name: string): boolean
+}
+
+function highlightRegistry(): HighlightRegistry | undefined {
+  return (globalThis.CSS as typeof CSS & { highlights?: HighlightRegistry } | undefined)?.highlights
+}
+
+/** Convert a row-relative character range back into a DOM Range. */
+function excerptRange(row: HTMLElement, start: number, end: number): Range | null {
+  const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT)
+  let offset = 0
+  let startNode: Text | null = null
+  let endNode: Text | null = null
+  let startOffset = 0
+  let endOffset = 0
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    const text = node as Text
+    const next = offset + text.data.length
+    if (startNode === null && start >= offset && start <= next) {
+      startNode = text
+      startOffset = start - offset
+    }
+    if (end >= offset && end <= next) {
+      endNode = text
+      endOffset = end - offset
+      break
+    }
+    offset = next
+  }
+  if (startNode === null || endNode === null) return null
+  const range = document.createRange()
+  range.setStart(startNode, startOffset)
+  range.setEnd(endNode, endOffset)
+  return range
 }
 
 /** Find an already-rendered settled row without interpolating a selector. */
@@ -144,11 +196,15 @@ function TurnStatus({ startTime, t }: {
  * ordered business Node crosses the keyed renderer seat.
  */
 export function ChatView({
-  useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt,
-  fileMentions, t,
+  useSession, useSessions, useStore, useInput, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt,
+  returnToParent, fileMentions, addToConversation, removeFromConversation, askInSideChat, visibleFromSeq, t,
 }: ChatViewSlotProps) {
   const order = useSession(s => s.chat.order)
   const nodeStore = useSession(s => s.chat.nodes)
+  const visibleOrder = useMemo(() => visibleFromSeq === undefined
+    ? order
+    : order.filter(key => (nodeStore.get(key)?.anchorSeq ?? -1) >= visibleFromSeq),
+  [nodeStore, order, visibleFromSeq])
   const timeline = useSession(s => s.chat.timeline)
   const inbox = useSession(s => s.queue)
   // Workspace root off the session list row: path summaries display relative to it.
@@ -159,6 +215,7 @@ export function ChatView({
   const hasMore = useSession(s => s.hasMore)
   const loadingOlder = useSession(s => s.loadingOlder)
   const selectedCallId = useStore(s => s.selection?.callId)
+  const annotations = useInput(s => s.annotations ?? [])
 
   const pendingSteering = useMemo(
     () => inbox.filter(item => item.placement === 'steering'),
@@ -170,6 +227,138 @@ export function ChatView({
   const columnRef = useRef<HTMLDivElement | null>(null)
   const atBottomRef = useRef(true)
   const [atBottom, setAtBottom] = useState(true)
+  const [selectionMenu, setSelectionMenu] = useState<SelectedExcerpt | null>(null)
+  const [annotationEditor, setAnnotationEditor] = useState<AnnotationEditor | null>(null)
+  const [annotationComment, setAnnotationComment] = useState('')
+  const [annotationPins, setAnnotationPins] = useState<readonly {
+    id: string
+    left: number
+    top: number
+    index: number
+    quote: string
+    comment: string
+  }[]>([])
+
+  const dismissSelection = useCallback(() => {
+    window.getSelection()?.removeAllRanges()
+    setSelectionMenu(null)
+  }, [])
+
+  const captureSelection = useCallback((event: SyntheticEvent<HTMLElement>) => {
+    const target = event.target
+    if (target instanceof Element && target.closest('[data-selection-actions]') !== null) return
+    const selection = window.getSelection()
+    const raw = selection?.toString() ?? ''
+    if (selection === null || selection.rangeCount === 0 || raw.trim() === '') {
+      setSelectionMenu(null)
+      return
+    }
+    const range = selection.getRangeAt(0)
+    const root = listRef.current
+    if (root === null || !root.contains(range.commonAncestorContainer)) {
+      setSelectionMenu(null)
+      return
+    }
+    const startElement = range.startContainer instanceof Element
+      ? range.startContainer
+      : range.startContainer.parentElement
+    const endElement = range.endContainer instanceof Element
+      ? range.endContainer
+      : range.endContainer.parentElement
+    const row = startElement?.closest<HTMLElement>('[data-chat-anchor-key]') ?? null
+    if (row === null || endElement?.closest('[data-chat-anchor-key]') !== row) {
+      setSelectionMenu(null)
+      return
+    }
+    const prefix = document.createRange()
+    prefix.selectNodeContents(row)
+    prefix.setEnd(range.startContainer, range.startOffset)
+    const leading = raw.length - raw.trimStart().length
+    const text = raw.trim()
+    const start = prefix.toString().length + leading
+    const rect = range.getBoundingClientRect()
+    setSelectionMenu({
+      text,
+      anchorKey: row.dataset.chatAnchorKey ?? '',
+      start,
+      end: start + text.length,
+      left: Math.max(12, Math.min(window.innerWidth - 420, rect.left + rect.width / 2)),
+      top: Math.max(8, rect.top - 48),
+    })
+  }, [])
+
+  useLayoutEffect(() => {
+    const root = listRef.current
+    if (root === null) return
+    const update = (): void => {
+      const pins = annotations.flatMap((annotation, index) => {
+        const row = anchorElement(root, annotation.anchorKey)
+        const range = row === null ? null : excerptRange(row, annotation.start, annotation.end)
+        if (range === null) return []
+        const rect = range.getBoundingClientRect()
+        return [{
+          id: annotation.id,
+          left: rect.right + 7,
+          top: rect.top - 7,
+          index: index + 1,
+          quote: annotation.quote,
+          comment: annotation.comment,
+        }]
+      })
+      setAnnotationPins(pins)
+    }
+    update()
+    const scrollport = scrollerOf(root)
+    const resizeObserver = annotations.length === 0 || typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(update)
+    resizeObserver?.observe(root)
+    const column = columnRef.current
+    if (column !== null) resizeObserver?.observe(column)
+    scrollport.addEventListener('scroll', update, { passive: true })
+    window.addEventListener('resize', update)
+    return () => {
+      resizeObserver?.disconnect()
+      scrollport.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+    }
+  }, [annotations])
+
+  useLayoutEffect(() => {
+    const registry = highlightRegistry()
+    const root = listRef.current
+    if (registry === undefined || root === null || typeof Highlight === 'undefined') return
+    const ranges = annotations.flatMap((annotation) => {
+      const row = anchorElement(root, annotation.anchorKey)
+      const range = row === null ? null : excerptRange(row, annotation.start, annotation.end)
+      return range === null ? [] : [range]
+    })
+    registry.set('dsh-composer-annotations', new Highlight(...ranges))
+    return () => { registry.delete('dsh-composer-annotations') }
+  }, [annotations, visibleOrder])
+
+  const saveAnnotation = (event: FormEvent): void => {
+    event.preventDefault()
+    if (annotationEditor === null) return
+    addToConversation({
+      id: annotationEditor.id,
+      anchorKey: annotationEditor.anchorKey,
+      start: annotationEditor.start,
+      end: annotationEditor.end,
+      quote: annotationEditor.text,
+      comment: annotationComment.trim(),
+    })
+    setAnnotationEditor(null)
+    setAnnotationComment('')
+    dismissSelection()
+    focusComposer()
+  }
+
+  const focusComposer = useCallback(() => {
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLTextAreaElement>('[data-composer-seat] textarea')?.focus()
+    })
+  }, [])
   /** Last position delivered or written on the main thread. */
   const observedTopRef = useRef(0)
   /** Paging anchor: semantic row/position at click, updated by reader scrolls
@@ -184,12 +373,12 @@ export function ChatView({
    *  scrolls the rest of the way to the floor). */
   const followSigRef = useRef<string | null>(null)
 
-  const firstKey = order[0]
+  const firstKey = visibleOrder[0]
   const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null
-  const lastKey = order.at(-1) ?? null
+  const lastKey = visibleOrder.at(-1) ?? null
   const lastNode = lastKey === null ? undefined : nodeStore.get(lastKey)
   const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null
-  const followSig = `${openState}:${firstSeq}:${lastKey}:${order.length}:${running ? 1 : 0}:${lastSteeringId ?? ''}`
+  const followSig = `${openState}:${firstSeq}:${lastKey}:${visibleOrder.length}:${running ? 1 : 0}:${lastSteeringId ?? ''}`
 
   const toBottom = (el: HTMLElement): void => {
     anchorRef.current = null
@@ -318,12 +507,12 @@ export function ChatView({
   const followRef = useRef<(() => void) | null>(null)
   followRef.current = () => {
     const local = listRef.current
-    if (local !== null && atBottomRef.current) {
-      const el = scrollerOf(local)
-      el.scrollTop = el.scrollHeight
-      observedTopRef.current = el.scrollTop
-      chatScroll.save(null)
-    }
+    if (local === null) return
+    const el = scrollerOf(local)
+    if (!atBottomRef.current) return
+    el.scrollTop = el.scrollHeight
+    observedTopRef.current = el.scrollTop
+    chatScroll.save(null)
   }
   // Streaming, tool disclosures, and other flow changes resize the column;
   // the sticky composer resizes outside it. This observer owns ChatView's
@@ -363,7 +552,102 @@ export function ChatView({
   }
 
   return (
-    <div className={css.root}>
+    <div className={css.root}
+      data-side-chat={visibleFromSeq === undefined ? undefined : ''}
+      data-running={running ? '' : undefined}
+      onPointerUp={captureSelection} onKeyUp={captureSelection}>
+      {selectionMenu !== null && (
+        <div
+          className={css.selectionActions}
+          data-selection-actions=""
+          style={{ left: selectionMenu.left, top: selectionMenu.top }}
+          role="toolbar"
+          aria-label={t('selection.add')}
+          onPointerDown={(event) => { event.preventDefault() }}
+        >
+          <button type="button" onClick={() => {
+            const id = crypto.randomUUID()
+            addToConversation({
+              id,
+              anchorKey: selectionMenu.anchorKey,
+              start: selectionMenu.start,
+              end: selectionMenu.end,
+              quote: selectionMenu.text,
+              comment: '',
+            })
+            setAnnotationEditor({ ...selectionMenu, id })
+            setAnnotationComment('')
+            setSelectionMenu(null)
+          }}>{t('selection.add')}</button>
+          <button type="button" onClick={() => {
+            askInSideChat({
+              id: crypto.randomUUID(),
+              anchorKey: selectionMenu.anchorKey,
+              start: selectionMenu.start,
+              end: selectionMenu.end,
+              quote: selectionMenu.text,
+              comment: '',
+            })
+            dismissSelection()
+          }}>{t('selection.sideChat')}</button>
+        </div>
+      )}
+      {annotationEditor !== null && (
+        <form
+          className={css.annotationEditor}
+          data-selection-actions=""
+          style={{ left: annotationEditor.left, top: annotationEditor.top }}
+          onSubmit={saveAnnotation}
+        >
+          <textarea
+            autoFocus
+            value={annotationComment}
+            placeholder={t('selection.commentPlaceholder')}
+            onChange={(event) => { setAnnotationComment(event.currentTarget.value) }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setAnnotationEditor(null)
+              if (event.key === 'Enter' && !event.shiftKey) saveAnnotation(event)
+            }}
+          />
+          <div className={css.annotationButtons}>
+            <button type="button" className={css.annotationDelete} aria-label={t('selection.delete')} onClick={() => {
+              removeFromConversation(annotationEditor.id)
+              setAnnotationEditor(null)
+            }}>
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                <path d="M3 4h10M6 4V2.5h4V4m2 0-.5 9h-7L4 4m3 2v5m2-5v5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+              </svg>
+            </button>
+            <button type="button" onClick={() => { setAnnotationEditor(null) }}>{t('selection.cancel')}</button>
+            <button type="submit">{t('selection.save')}</button>
+          </div>
+        </form>
+      )}
+      {annotationPins.map(pin => (
+        <button key={pin.id} type="button" className={css.annotationPin} style={{ left: pin.left, top: pin.top }}
+          aria-label={t('selection.edit', { index: pin.index })}
+          onClick={() => {
+            const annotation = annotations.find(item => item.id === pin.id)
+            if (annotation === undefined) return
+            setAnnotationEditor({
+              id: annotation.id,
+              text: annotation.quote,
+              anchorKey: annotation.anchorKey,
+              start: annotation.start,
+              end: annotation.end,
+              left: pin.left + 12,
+              top: pin.top + 32,
+            })
+            setAnnotationComment(annotation.comment)
+          }}>
+          {pin.index}
+          <span className={css.annotationPreview} role="tooltip">
+            <strong>{pin.index}. {t('selection.selectedText')}</strong>
+            <span>{pin.quote}</span>
+            {pin.comment !== '' && <span>{pin.comment}</span>}
+          </span>
+        </button>
+      ))}
       <div ref={listRef} className={css.scroll}>
         <div ref={columnRef} className={css.column} data-chat-flow="">
           {openState === 'loading' && <div className={css.hint}>{t('chat.loadingHistory')}</div>}
@@ -372,14 +656,14 @@ export function ChatView({
               {t('chat.loadError', { message: openError.message, code: openError.code })}
             </div>
           )}
-          {hasMore && (
+          {visibleFromSeq === undefined && hasMore && (
             <div className={css.older}>
               <button type="button" disabled={loadingOlder} onClick={loadOlderAnchored}>
                 {loadingOlder ? t('loading') : t('chat.loadOlder')}
               </button>
             </div>
           )}
-          {order.map(nodeKey => (
+          {visibleOrder.map(nodeKey => (
             <ChatNodeSeat
               key={nodeKey}
               nodeKey={nodeKey}
@@ -389,6 +673,7 @@ export function ChatView({
               openFile={openFile}
               inspectCall={inspectCall}
               forkAt={forkAt}
+              returnToParent={returnToParent}
               loadImage={loadImage}
               fileMentions={fileMentions}
               renderSlot={renderSlot}

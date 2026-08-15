@@ -84,12 +84,14 @@ function rafBatch(notify: () => void): () => void {
  * @returns the store.
  */
 export function createSnapshotStore<T>(
-  init: T, opts?: { flush?: 'raf' | 'sync'; persist?: { name: string } }): SnapshotStore<T> {
+  init: T,
+  opts?: { flush?: 'raf' | 'sync'; persist?: { name: string; project?: (state: T) => T } },
+): SnapshotStore<T> {
   // Immer enters through produce() in update() below (identical semantics to
   // the immer middleware without its setState-signature mutator generics).
   const withSelector = subscribeWithSelector(() => init)
   const api: StoreApi<T> = createStore<T>()(withSelector)
-  if (opts?.persist) attachPersistence(api, opts.persist.name)
+  if (opts?.persist) attachPersistence(api, opts.persist)
 
   let subscribe = (fn: () => void) => api.subscribe(fn)
   if (opts?.flush === 'raf') {
@@ -124,24 +126,31 @@ export function createSnapshotStore<T>(
  * because the corruption happens before serialization. Storage failures
  * (quota, private mode) only disable persistence, never break the store.
  */
-function attachPersistence<T>(api: StoreApi<T>, name: string): void {
+function attachPersistence<T>(
+  api: StoreApi<T>,
+  persistence: { name: string; project?: (state: T) => T },
+): void {
   // Non-browser runs (node e2e booting the client tree) have no localStorage:
   // persistence silently disables — same contract as a storage failure, minus
   // the per-store console noise a ReferenceError would produce.
   if (typeof localStorage === 'undefined') return
   try {
-    const raw = localStorage.getItem(name)
+    const raw = localStorage.getItem(persistence.name)
     if (raw !== null) {
-      api.setState(devFreeze(JSON.parse(raw) as T), true)
+      const decoded = JSON.parse(raw) as T
+      api.setState(devFreeze(persistence.project?.(decoded) ?? decoded), true)
     }
   } catch (error) {
-    console.error(`snapshot store '${name}' rehydration failed:`, error)
+    console.error(`snapshot store '${persistence.name}' rehydration failed:`, error)
   }
   api.subscribe((state) => {
     try {
-      localStorage.setItem(name, JSON.stringify(state))
+      localStorage.setItem(
+        persistence.name,
+        JSON.stringify(persistence.project?.(state) ?? state),
+      )
     } catch (error) {
-      console.error(`snapshot store '${name}' persistence failed:`, error)
+      console.error(`snapshot store '${persistence.name}' persistence failed:`, error)
     }
   })
 }
@@ -209,12 +218,18 @@ export function defineStore<T, A extends ActionsDecl<T>>(
   return {
     spec: decl,
     create(scopeKey?: string): EngineStoreInstance<T, A> {
-      const persistKey = decl.persist === undefined
+      const persistence = decl.persist === undefined
         ? undefined
-        : scopeKey === undefined ? decl.persist : `${decl.persist}.${scopeKey}`
+        : {
+          name: scopeKey === undefined
+            ? typeof decl.persist === 'string' ? decl.persist : decl.persist.name
+            : `${typeof decl.persist === 'string' ? decl.persist : decl.persist.name}.${scopeKey}`,
+          ...(typeof decl.persist === 'string' ? {} : { project: decl.persist.project }),
+        }
       const store = createSnapshotStore<T>(
         decl.init(),
-        persistKey !== undefined ? { persist: { name: persistKey } } : undefined)
+        persistence === undefined ? undefined : { persist: persistence },
+      )
       const actions = {} as Record<string, (...params: unknown[]) => void>
       for (const key of Object.keys(decl.actions)) {
         const mutate = decl.actions[key] as (draft: T, ...params: unknown[]) => void
@@ -226,9 +241,9 @@ export function defineStore<T, A extends ActionsDecl<T>>(
         subscribe: fn => store.subscribe(fn),
         store,
         clearPersisted: () => {
-          if (persistKey === undefined || typeof localStorage === 'undefined') return
+          if (persistence === undefined || typeof localStorage === 'undefined') return
           try {
-            localStorage.removeItem(persistKey)
+            localStorage.removeItem(persistence.name)
           } catch {
             // Storage failures (private mode, quota teardown races) only skip
             // cleanup — the same non-fatal contract as attachPersistence.

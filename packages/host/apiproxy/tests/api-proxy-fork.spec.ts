@@ -37,10 +37,11 @@ async function composed(workspaces: readonly Workspace[] = []): Promise<Context>
       })
       const agent = {} as Agent
       const agentCtx = ownerCtx.extend({ agent })
-      Object.assign(agent, { id: session.id, session, status: 'idle', ctx: agentCtx })
+      const dispose = vi.fn(() => Promise.resolve())
+      Object.assign(agent, { id: session.id, session, status: 'idle', ctx: agentCtx, testDispose: dispose })
       await options.setup?.(agentCtx)
       ctx.agents.register(agent)
-      return { agent, dispose: () => Promise.resolve() }
+      return { agent, dispose }
     },
     resume: () => Promise.reject(new Error('fork test sources are live')),
   })
@@ -87,6 +88,73 @@ const api = (ctx: Context) => createApiProxy(ctx, {
 })
 
 describe('sessions.fork', () => {
+  it('creates a non-workspace temporary fork and disposes it explicitly', async () => {
+    const attachSession = vi.fn<(sessionId: SessionId) => Promise<void>>().mockResolvedValue(undefined)
+    const sessionIds: SessionId[] = []
+    const workspace = { sessionIds, attachSession } as unknown as Workspace
+    const ctx = await composed([workspace])
+    const source = liveAgent(ctx, 'session-source-temporary', 1)
+    sessionIds.push(source.id)
+    const proxy = api(ctx)
+    const response = await proxy.sessions.fork(request({ sessionId: source.id, temporary: true }))
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) return
+    const childId = response.result.value.sessionId
+    const child = ctx.sessions.get(childId)
+    expect(child?.header).toMatchObject({ parentSession: source.id, origin: 'sidechat' })
+    expect(response.result.value.seedLength).toBe(child?.header.seedLength)
+    expect(attachSession).not.toHaveBeenCalled()
+    const listed = await proxy.sessions.list(request({}))
+    expect(listed.result).toEqual({
+      ok: true,
+      value: { items: [expect.objectContaining({ sessionId: source.id })] },
+    })
+    const dispose = (ctx.agents.get(childId) as Agent & { testDispose: ReturnType<typeof vi.fn> }).testDispose
+    const discarded = await proxy.sessions.discard(request({ sessionId: childId }))
+    expect(discarded.result).toEqual({ ok: true, value: { discarded: true } })
+    expect(dispose).toHaveBeenCalledOnce()
+    const repeated = await proxy.sessions.discard(request({ sessionId: childId }))
+    expect(repeated.result).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
+    await ctx.fiber.dispose()
+  })
+
+  it('streams temporary fork status without publishing it as a listed session', async () => {
+    const sessionIds: SessionId[] = []
+    const workspace = { sessionIds, attachSession: vi.fn() } as unknown as Workspace
+    const ctx = await composed([workspace])
+    const source = liveAgent(ctx, 'session-source-temporary-status', 1)
+    sessionIds.push(source.id)
+    const proxy = api(ctx)
+    const abort = new AbortController()
+    const stream = proxy.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    const response = await proxy.sessions.fork(request({ sessionId: source.id, temporary: true }))
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) return
+    const child = ctx.agents.get(response.result.value.sessionId)
+    if (child === undefined) throw new Error('temporary fork agent was not published')
+
+    const next = stream.next()
+    agentEvents(ctx, child).emit('agent/status', { status: 'running' })
+    expect(await next).toMatchObject({
+      value: {
+        payload: {
+          type: 'host/session-status',
+          sessionId: child.id,
+          running: true,
+        },
+      },
+    })
+    const listed = await proxy.sessions.list(request({}))
+    expect(listed.result).toEqual({
+      ok: true,
+      value: { items: [expect.objectContaining({ sessionId: source.id })] },
+    })
+
+    abort.abort()
+    await stream.return?.()
+    await ctx.fiber.dispose()
+  })
+
   it('cuts at the anchored completed turn and records lineage and cwd', async () => {
     const ctx = await composed()
     const source = liveAgent(ctx, 'session-source', 2)

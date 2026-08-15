@@ -27,6 +27,12 @@ export interface ILayout {
   openDetails(): void
   /** Close the details panel. */
   closeDetails(): void
+  /** Toggle the bottom panel. */
+  toggleBottomPanel(): void
+  /** Open the right-side chat. */
+  openSideChat(): void
+  /** Close the right-side chat. */
+  closeSideChat(): void
 }
 
 /** Cross-plugin panel-action face (ctx.layout). */
@@ -58,6 +64,15 @@ export class LayoutController implements ILayout {
   closeDetails(): void {
     this.#require().closeDetails()
   }
+
+  /** Toggle the bottom panel. */
+  toggleBottomPanel(): void { this.#require().toggleBottomPanel() }
+
+  /** Open the right-side chat. */
+  openSideChat(): void { this.#require().openSideChat() }
+
+  /** Close the right-side chat. */
+  closeSideChat(): void { this.#require().closeSideChat() }
 
   #require(): PanelActions {
     // Callers are UI gestures, which cannot fire before the root entry

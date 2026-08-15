@@ -1,13 +1,15 @@
 /**
  * Browser half of the native directory-picker backend: fills ui-workspace's
  * two directory-flow holes with a renderless occupant that answers each
- * `open` by driving `host.pickDirectory` (the node half's OS chooser) and
+ * `open` through Electron's preload bridge when present, with
+ * `host.pickDirectory` as the browser carrier fallback, and
  * reporting the one outcome — picked path, cancellation, or failure — back
  * through the owner conversation. Mounting this package therefore composes
  * both sides of the native interaction with one cordis.yml row; no client
  * code branches on a capability kind.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { DesktopRendererBridge } from '@deepseek-ai/dsh-client-connection/client'
 // Type-only: pulls the SlotMap merge declaring the directory-flow holes.
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { NativeFlowInjected } from './flow.ts'
@@ -17,6 +19,10 @@ import { NativeDirectoryFlow } from './flow.ts'
 /** Required services (cordis fiber inject): the slot registry and the wire-facing workspace service. */
 export const inject = ['slots', 'workspaces']
 
+function desktopBridge(): DesktopRendererBridge | undefined {
+  return (globalThis as { __DSH_DESKTOP__?: DesktopRendererBridge }).__DSH_DESKTOP__
+}
+
 /**
  * Client plugin body: register the renderless native flow into both
  * directory-flow holes through `slots.inject()` because the ui-workspace
@@ -24,7 +30,9 @@ export const inject = ['slots', 'workspaces']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  const injected = (): NativeFlowInjected => ({ pick: () => ctx.workspaces.pickDirectory() })
+  const injected = (): NativeFlowInjected => ({
+    pick: () => desktopBridge()?.pickDirectory() ?? ctx.workspaces.pickDirectory(),
+  })
   // Both declaration lifetimes must be live before the pair installs; the
   // generator makes the two registrations one transactional effect. The
   // outer/inner nesting order is arbitrary; neither hole has precedence.

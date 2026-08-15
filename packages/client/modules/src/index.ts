@@ -3,7 +3,8 @@
  * the host Loader's entries for packages declaring `dsh.client`, composes the
  * `window.__DSH_BOOT__` entry graph (wire single source: {@link WebBootEntry}
  * in `./client/manifest.ts`), serves `/plugins/<id>/client.js` and its source
- * map, taps the index render to inject the boot manifest, and provides the
+ * map, taps the index render to inject the boot manifest when a Web carrier is
+ * present, and provides the
  * `clientModuleHost` service (the HMR node half's registration/notification
  * face).
  *
@@ -182,7 +183,7 @@ export function injectBootManifest(html: string, graph: WebBootGraph): string {
  * boot activation audit reports it).
  */
 export class ClientModuleRegistry extends Service {
-  static inject = ['webServer', 'loader']
+  static inject = ['loader']
 
   private readonly table = new Map<string, WebPluginRecord>()
   // Negative verdicts (unresolvable specifier — builtins like cordis:include,
@@ -198,19 +199,32 @@ export class ClientModuleRegistry extends Service {
 
   /**
    * Build the service: subscribe, seed, and run the activation flush.
-   * @param ctx - plugin context carrying webServer and loader.
+   * @param ctx - plugin context carrying the Loader and, optionally, a Web carrier.
    */
   constructor(ctx: Context) {
     super(ctx, 'clientModules')
-    // Resolution anchor: the config tree's baseUrl (the cordis.yml directory,
-    // whose package declares every composed plugin as a dependency). The
-    // modules package's own URL would miss sibling packages under pnpm's
-    // isolated node_modules.
+    // Prefer the config tree's baseUrl, whose package declares out-of-tree
+    // plugins. Packaged Electron profiles use junctions into app.asar that
+    // CommonJS resolution cannot traverse, so in-box packages fall back to
+    // the modules package's installation anchor inside the same app.asar.
     if (ctx.baseUrl === undefined) {
       throw new Error('client-modules: ctx.baseUrl is unset — the node half needs the config-tree anchor to resolve plugin packages')
     }
-    const require = createRequire(ctx.baseUrl)
-    this.resolvePkgJson = spec => require.resolve(`${spec}/package.json`)
+    const profileRequire = createRequire(ctx.baseUrl)
+    const installationRequire = createRequire(import.meta.url)
+    this.resolvePkgJson = (spec) => {
+      const packageJson = `${spec}/package.json`
+      try {
+        return profileRequire.resolve(packageJson)
+      } catch (profileError) {
+        try {
+          return installationRequire.resolve(packageJson)
+        } catch {
+          // Neither anchor resolves the package; preserve the profile-facing diagnostic.
+          throw profileError
+        }
+      }
+    }
 
     // Subscribe before seeding so a fiber arriving mid-activation lands in the
     // same dirty set (Set idempotence makes the overlap harmless). An entry-less
@@ -238,14 +252,17 @@ export class ClientModuleRegistry extends Service {
       throw new ClientPackageCompositionError(failures)
     }
 
-    ctx.effect(
-      () => ctx.webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
-      'client-modules: bundle route',
-    )
-    ctx.effect(
-      () => ctx.webServer.tapIndex(html => injectBootManifest(html, this.composed)),
-      'client-modules: boot manifest injection',
-    )
+    const webServer = ctx.get('webServer')
+    if (webServer !== undefined) {
+      ctx.effect(
+        () => webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
+        'client-modules: bundle route',
+      )
+      ctx.effect(
+        () => webServer.tapIndex(html => injectBootManifest(html, this.composed)),
+        'client-modules: boot manifest injection',
+      )
+    }
   }
 
   /**

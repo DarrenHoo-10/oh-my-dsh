@@ -122,6 +122,59 @@
   padding: 10px 12px 0;
 }
 
+.annotationRail {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  margin: 0 12px;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-1);
+  font-size: 12px;
+}
+
+.annotationRail button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.annotationRail button:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+.annotationSummary {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  display: none;
+  width: min(360px, calc(100vw - 32px));
+  max-height: 240px;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-specific-menu);
+  box-shadow: var(--dsw-shadow-lv2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.annotationSummary > span, .annotationSummary strong, .annotationSummary span span { display: block; }
+.annotationSummary > span + span { margin-top: 10px; }
+.annotationSummary strong { margin-bottom: 3px; color: var(--dsw-alias-label-secondary); }
+.annotationSummary span span + span { margin-top: 4px; color: var(--dsw-alias-label-secondary); }
+.annotationRail:hover .annotationSummary, .annotationRail:focus-within .annotationSummary { display: block; }
+
 /* Rail seat: the card's top padding (10px) plus this 4px matches DeepSeek
    Chat's spacing above the thumbnails; the card's 12px flex gap owns the space
    below. The rail itself (arrows, hidden scrollbar, card geometry) is the

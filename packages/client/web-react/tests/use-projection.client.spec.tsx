@@ -59,6 +59,7 @@ function makeHost() {
     sessions: {
       list: observable<unknown>({ ids: [] }),
       provideInfo: provide,
+      provideInfoFor: () => undefined,
     },
     workspaces: { list: observable<unknown>({ items: [] }) },
   }

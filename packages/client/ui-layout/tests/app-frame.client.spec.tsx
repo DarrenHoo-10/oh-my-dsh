@@ -176,19 +176,19 @@ describe('AppFrame', () => {
     const { frame, instance, rerenderFrame } = mountFrame()
     expect(tracks(frame)).toEqual([280, 0])
 
-    act(() => { instance.actions.openDetails() })
+    act(() => { instance.actions.openSideChat() })
     expect(tracks(frame)).toEqual([280, 360])
 
     selectedSession.current = 's-next' as SessionId
     act(() => { rerenderFrame() })
     expect(tracks(frame)).toEqual([280, 0])
 
-    act(() => { instance.actions.openDetails() })
+    act(() => { instance.actions.openSideChat() })
     selectedSession.current = 's-blank' as SessionId
     selectedSessionBlank.current = true
     act(() => { rerenderFrame() })
     expect(tracks(frame)).toEqual([280, 0])
-    expect(instance.getSnapshot().details).toBe(360)
+    expect(instance.getSnapshot().sideChat).toBe(360)
 
     selectedSession.current = 's-next' as SessionId
     selectedSessionBlank.current = false
@@ -228,20 +228,28 @@ describe('AppFrame', () => {
 
   it('details drag widens leftward (negative dx grows the panel)', () => {
     const { frame, instance } = mountFrame()
-    act(() => { instance.actions.openDetails() })
+    act(() => { instance.actions.openSideChat() })
     const handles = frame.querySelectorAll('[class*="handle"]')
     drag(handles[1]!, 1560, 1500)
     expect(tracks(frame)[1]).toBe(420)
   })
 
+  it('side-chat divider drags right below the former fixed-width floor', () => {
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.openSideChat() })
+    const handles = frame.querySelectorAll('[class*="handle"]')
+    drag(handles[1]!, 1560, 1700)
+    expect(tracks(frame)[1]).toBe(220)
+  })
+
   it('drag base is the rendered (concession-clamped) width, not the preference', () => {
     frameWidth = 1250 // step-2 squeeze: details renders 330 while preference is 360
     const { frame, instance } = mountFrame()
-    act(() => { instance.actions.openDetails() })
+    act(() => { instance.actions.openSideChat() })
     expect(tracks(frame)).toEqual([280, 330])
     const handles = frame.querySelectorAll('[class*="handle"]')
     drag(handles[1]!, 920, 930) // shrink by 10 from the rendered width
-    expect(instance.getSnapshot().details).toBe(320)
+    expect(instance.getSnapshot().sideChat).toBe(320)
   })
 
   it('details column stays mounted at zero width', () => {
@@ -263,7 +271,7 @@ describe('AppFrame', () => {
 
   it('viewport shrink triggers the concession chain via ResizeObserver', () => {
     const { frame, instance } = mountFrame()
-    act(() => { instance.actions.openDetails() })
+    act(() => { instance.actions.openSideChat() })
     frameWidth = 1250
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
     expect(tracks(frame)).toEqual([280, 330])
@@ -275,9 +283,9 @@ describe('AppFrame', () => {
   it('drag handles disappear for collapsed columns', () => {
     const { frame, instance } = mountFrame()
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
-    act(() => { instance.actions.openDetails() })
+    act(() => { instance.actions.openSideChat() })
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(2)
-    act(() => { instance.actions.closeDetails() })
+    act(() => { instance.actions.closeSideChat() })
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
     act(() => { instance.actions.toggleSidebar() })
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
@@ -390,7 +398,7 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
 
   it('double resize inside one frame rides the pending rAF (??= guard)', () => {
     const { frame, instance } = mountFrame()
-    act(() => { instance.actions.openDetails() })
+    act(() => { instance.actions.openSideChat() })
     frameWidth = 1250
     act(() => { fireResize?.(); fireResize?.(); vi.advanceTimersByTime(20) })
     expect(tracks(frame)).toEqual([280, 330])

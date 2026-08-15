@@ -107,9 +107,8 @@
   justify-content: flex-start;
 }
 
-/* Brand group (figma I133:7632): the full wordmark rides the text ink
-   (figma flows: the main-screen instance is black; blue is brand
-   emphasis only). A button only in behavior (New Session shortcut): the
+/* Brand group: the desktop product mark uses DeepSeek blue. A button only in
+   behavior (New Session shortcut): the
    pointer cursor is the sole affordance — no hover chrome on the mark. */
 .brand {
   flex: 1;
@@ -120,7 +119,7 @@
   padding: 0;
   border: none;
   background: transparent;
-  color: inherit;
+  color: var(--dsw-static-deepseek-450);
   cursor: pointer;
 }
 

@@ -7,7 +7,7 @@
  * preference (or the collapsed rail), and center absorbs any remaining
  * deficit as the last resort. Inputs are the layout store's plain width
  * preferences (0 = closed); a closed sidebar resolves to the fixed
- * SIDEBAR_COLLAPSED control rail while closed details resolve to zero width.
+ * SIDEBAR_COLLAPSED control rail while closed side chat resolves to zero width.
  * The SIDEBAR_AUTO_COLLAPSE breakpoint is consumed by AppFrame, which decides
  * the effective sidebar preference before solving; the solver itself stays
  * breakpoint-free.
@@ -37,6 +37,8 @@ export const DETAILS_MIN = 300
 export const DETAILS_MAX = 520
 /** Details width before any user drag. */
 export const DETAILS_DEFAULT = 360
+/** Smallest usable contextual side-chat column. */
+export const SIDE_CHAT_MIN = 220
 
 /**
  * Clamp a panel width into its contract range.
@@ -56,19 +58,19 @@ export function clampWidth(px: number, min: number, max: number): number {
  * store boundary and callers may still supply stale ranges.
  * @param viewport - available frame width in px.
  * @param sidebar - sidebar width preference in px (0 = closed).
- * @param details - details width preference in px (0 = closed).
+ * @param details - side-chat width preference in px (0 = closed).
  * @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail.
  */
 export function computeColumns(viewport: number, sidebar: number, details: number): Columns {
   // The sidebar is fixed at its preference (or the rail) — it never concedes.
   const s = sidebar === 0 ? SIDEBAR_COLLAPSED : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
-  const d0 = details === 0 ? 0 : clampWidth(details, DETAILS_MIN, DETAILS_MAX)
+  const d0 = details === 0 ? 0 : Math.max(SIDE_CHAT_MIN, Math.round(details))
 
   // Step 1: everything fits at preferred widths.
   if (s + d0 + CENTER_MIN <= viewport) return { sidebar: s, center: viewport - s - d0, details: d0 }
 
   // Step 2: shrink details toward its minimum.
-  const d1 = d0 === 0 ? 0 : Math.max(DETAILS_MIN, viewport - s - CENTER_MIN)
+  const d1 = d0 === 0 ? 0 : Math.max(SIDE_CHAT_MIN, viewport - s - CENTER_MIN)
   if (s + d1 + CENTER_MIN <= viewport) return { sidebar: s, center: CENTER_MIN, details: d1 }
 
   // Step 3: auto-close details (derived — preferences untouched); center

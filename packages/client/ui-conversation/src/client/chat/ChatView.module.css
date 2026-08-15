@@ -7,13 +7,18 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
+  font-family: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
 }
 
 .scroll {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   /* Sides = composer clearance + 16px: on narrow viewports the transcript
      stays exactly 32px narrower than the input card (the shared width rule). */
@@ -38,6 +43,7 @@
 .column {
   max-width: var(--dsh-chat-content-width);
   width: 100%;
+  min-width: 0;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -190,3 +196,104 @@
 .toBottom:hover {
   background: var(--dsw-alias-button-floating-hover);
 }
+.selectionActions {
+  position: fixed;
+  z-index: 80;
+  display: flex;
+  transform: translateX(-50%);
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 9px;
+  background: var(--dsw-specific-menu);
+  box-shadow: 0 8px 24px var(--dsw-alias-bg-mask-2);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.selectionActions button {
+  border: 0;
+  border-right: 1px solid var(--dsw-alias-border-l1);
+  padding: 8px 11px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.selectionActions button:last-child { border-right: 0; }
+.selectionActions button:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+.annotationEditor {
+  position: fixed;
+  z-index: 81;
+  display: flex;
+  width: min(420px, calc(100vw - 24px));
+  transform: translateX(-50%);
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 22px;
+  background: var(--dsw-specific-menu);
+  box-shadow: 0 10px 30px var(--dsw-alias-bg-mask-2);
+}
+
+.annotationEditor textarea {
+  min-height: 58px;
+  resize: none;
+  border: 0;
+  padding: 8px 12px;
+  outline: none;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  font: inherit;
+}
+
+.annotationButtons { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.annotationButtons button { border: 0; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+.annotationButtons button:last-child { color: white; background: var(--dsw-alias-state-business-primary); }
+.annotationButtons .annotationDelete { margin-right: auto; color: var(--dsw-alias-label-primary); background: transparent; font-size: 18px; }
+
+.annotationPin {
+  position: fixed;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px 7px 7px 2px;
+  color: white;
+  background: var(--dsw-alias-state-business-primary);
+  box-shadow: var(--dsw-shadow-lv1);
+  font-size: 11px;
+  font-weight: 600;
+  border: 0;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.annotationPreview {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  display: none;
+  width: min(360px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-specific-menu);
+  box-shadow: var(--dsw-shadow-lv2);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+}
+
+.annotationPreview strong, .annotationPreview span { display: block; }
+.annotationPreview strong { margin-bottom: 4px; color: var(--dsw-alias-label-secondary); }
+.annotationPreview span + span { margin-top: 6px; color: var(--dsw-alias-label-secondary); }
+.annotationPin:hover .annotationPreview, .annotationPin:focus-visible .annotationPreview { display: block; }
+::highlight(dsh-composer-annotations) { color: white; background: #3978e8; }

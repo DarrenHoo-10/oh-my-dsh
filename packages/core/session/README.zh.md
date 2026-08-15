@@ -42,7 +42,7 @@
 - `session.surface` 暴露只读 `SessionSurface` 视图，由会话唯一的增量 surface 管理器所有；每次提交重写，`replaceGeneration` 都会变化。
 - `session.events` 是按追加失效的缓存冻结快照；已接受事件保持深度冻结。
 - `session.seq`、`session.id`：当前序号和只读类型化身份。
-- `session.header: SessionHeader`：脱离、深冻结的创建元数据（`version`、`id`、`createdAt`，以及可选的 `cwd`／`parentSession`／`seedLength`／`delegationDepth`）。构造时会校验持久记录，并要求其中的 id 与 `session.id` 一致。
+- `session.header: SessionHeader`：脱离、深冻结的创建元数据（`version`、`id`、`createdAt`，以及可选的 `cwd`／`parentSession`／`seedLength`／`origin`／`delegationDepth`）。`origin: 'subagent'` 标记持久委托子会话，`origin: 'sidechat'` 标记 Host 持有的临时 fork。构造时会校验记录，并要求其中的 id 与 `session.id` 一致。
 
 ### 无损 JSON 工具
 
@@ -84,7 +84,7 @@
 
 ### 元数据类型（`types.ts`）
 
-- `SessionHeader`：会话元数据，在发布为 `Session.header` 时写入一次；脱离和深冻结保证运行时不可变：`{ version, id, createdAt, cwd?, parentSession?, seedLength?, delegationDepth? }`。持久化 loader 可返回相同数据类型的可变脱离副本。该类型与 `SessionId` 一同归此包所有，因为 `Session.header` 以它为类型；持久化后端只是重新导出而不拥有它，否则会形成包循环依赖。
+- `SessionHeader`：会话元数据，在发布为 `Session.header` 时写入一次；脱离和深冻结保证运行时不可变：`{ version, id, createdAt, cwd?, parentSession?, seedLength?, origin?, delegationDepth? }`。持久化 loader 可返回相同数据类型的可变脱离副本。该类型与 `SessionId` 一同归此包所有，因为 `Session.header` 以它为类型；持久化后端只是重新导出而不拥有它，否则会形成包循环依赖。
 
 ### 扩展点
 

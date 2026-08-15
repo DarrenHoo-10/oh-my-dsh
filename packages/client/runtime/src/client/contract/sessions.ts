@@ -11,7 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {
   RpcResult, SessionId, SubagentAddress,
 } from '@deepseek-ai/dsh-api-remotes/client'
-import type { HostObservable, SessionMaybeProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, SessionMaybeProvideInfo, SessionProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AgentContext } from '../agents/scope.ts'
 import type { SessionSearchResultItem } from '../sessions/manager.ts'
 import type {
@@ -28,6 +28,15 @@ export interface ISessions {
   readonly list: ObservableSnapshot<SessionListState>
   /** Atomic current-session provide projection (the renderer host's `sessions.provideInfo` feed). */
   readonly currentProvideInfo: HostObservable<SessionMaybeProvideInfo>
+  /** Resolve one Session's render bundle without selecting it as current. */
+  provideInfoFor(sessionId: string): SessionProvideInfo | undefined
+  /**
+   * Load one Session's conversation window without selecting it as current.
+   * @param sessionId - listed Session to load.
+   * @returns completion of the idempotent history-window load.
+   * @throws when the Session is unknown or its history window fails to load.
+   */
+  openWindow(sessionId: SessionId): Promise<void>
   /**
    * The `session.search` result bound the wire schema fixes, exposed to
    * presentation as injected data. Not per-connection state: every transport
@@ -90,11 +99,14 @@ export interface ISessions {
    * @param opts - source session id, the optional event seq anchoring the
    *   cut (the boundary is the first turn/end at or after it; an in-log
    *   anchor in an open turn is unavailable rather than clipped backward),
-   *   and whether to increment an inherited durable title before resolving.
+   *   whether to increment an inherited durable title before resolving, and
+   *   whether the Host owns the child as a discard-only temporary fork.
    * @returns the child session id.
    * @throws when the fork fails, or when a requested child-title rename fails after creation.
    */
-  fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId>
+  fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean; temporary?: boolean }): Promise<SessionId>
+  /** Dispose a temporary fork and remove it from the local list projection. */
+  discardTemporary(sessionId: SessionId): Promise<void>
   /**
    * Register a per-session standard-props provider (hooks become `use<Name>`
    * selector hooks on the render side; props spread verbatim).

@@ -21,6 +21,7 @@ import {
   sessionCancelValueSchema,
   sessionAttachmentValueSchema,
   sessionCreateValueSchema,
+  sessionDiscardValueSchema,
   sessionForkValueSchema,
   sessionHistoryValueSchema,
   sessionListValueSchema,
@@ -94,6 +95,7 @@ export interface IApiClient {
     selectModel(payload: RequestPayload<'session.selectModel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.selectModel'>>>
     rename(payload: RequestPayload<'session.rename'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.rename'>>>
     fork(payload: RequestPayload<'session.fork'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.fork'>>>
+    discard(payload: RequestPayload<'session.discard'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.discard'>>>
     prompt(payload: RequestPayload<'session.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.prompt'>>>
     attachment(payload: RequestPayload<'session.attachment'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.attachment'>>>
     updateQueue(payload: RequestPayload<'session.updateQueue'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.updateQueue'>>>
@@ -178,6 +180,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.selectModel': sessionSelectModelValueSchema,
   'session.rename': sessionRenameValueSchema,
   'session.fork': sessionForkValueSchema,
+  'session.discard': sessionDiscardValueSchema,
   'session.prompt': sessionPromptValueSchema,
   'session.attachment': sessionAttachmentValueSchema,
   'session.updateQueue': sessionUpdateQueueValueSchema,
@@ -418,6 +421,7 @@ export abstract class AbstractApiClient implements IApiClient {
     selectModel: (payload, signal) => this.callUnary('session.selectModel', payload, signal),
     rename: (payload, signal) => this.callUnary('session.rename', payload, signal),
     fork: (payload, signal) => this.callUnary('session.fork', payload, signal),
+    discard: (payload, signal) => this.callUnary('session.discard', payload, signal),
     prompt: (payload, signal) => this.callUnary('session.prompt', payload, signal),
     attachment: (payload, signal) => this.callUnary('session.attachment', payload, signal),
     updateQueue: (payload, signal) => this.callUnary('session.updateQueue', payload, signal),

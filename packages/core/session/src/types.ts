@@ -82,7 +82,7 @@ export interface SessionHeader {
    * Coarse product classification for a session created as a subagent child.
    * This is presentation metadata, not proof that the child is continuable.
    */
-  readonly origin?: 'subagent'
+  readonly origin?: 'subagent' | 'sidechat'
   /**
    * Delegation depth: absent (zero) for a top-level session, parent depth + 1
    * for a subagent child. Persisted so a recursion budget survives restart and
@@ -115,7 +115,7 @@ export interface CreateSessionOptions {
     readonly parentSession?: SessionId
     readonly createdAt?: number
     readonly seedLength?: number
-    readonly origin?: 'subagent'
+    readonly origin?: 'subagent' | 'sidechat'
     readonly delegationDepth?: number
     readonly agentPreset?: string
   }

@@ -31,6 +31,7 @@ import type { createChatStore } from '../src/client/stores.ts'
 usePinnedBrowserLanguages('zh-CN')
 
 const ROOT = 'root-1' as SessionId
+const SIDE = 'side-1' as SessionId
 
 type ChatInstance = ReturnType<ReturnType<typeof createChatStore>['create']>
 type ChatActions = ChatInstance['actions']
@@ -57,7 +58,17 @@ async function bench() {
     summary: { title: 'R', displayTitle: 'R', cwd: '/proj' },
     session: sessionFake,
   })
-  const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn() }
+  await runtime.sessions.add({
+    id: SIDE,
+    summary: { title: 'Side', displayTitle: 'Side', cwd: '/proj', parentId: ROOT, seedLength: 4 },
+    session: sessionFakeFor(),
+  }, { current: false })
+  runtime.sessions.list.update((draft) => {
+    draft.ids = draft.ids.filter(id => id !== SIDE)
+  })
+  const layoutFake = {
+    openDetails: vi.fn(), closeDetails: vi.fn(), openSideChat: vi.fn(), closeSideChat: vi.fn(),
+  }
   runtime.provide('layout', layoutFake)
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.provide('locale', locale)
@@ -112,7 +123,7 @@ async function bench() {
   const inputApi = (id: SessionId) => {
     const info = runtime.sessions.provideInfo(id)!
     const state = info.hooks['input'] as {
-      getSnapshot: () => { draft: string }
+      getSnapshot: () => { draft: string; annotations: readonly { quote: string; comment: string }[] }
       subscribe: (fn: () => void) => () => void
     }
     const actions = info.props['inputActions'] as {
@@ -147,6 +158,33 @@ describe('conversation slot inject API', () => {
     expect(b.runtime.sessions.calls).toContainEqual({
       method: 'fork', args: [{ sessionId: ROOT, atSeq: 17, increaseTitle: true }],
     })
+
+    chatView.injected.askInSideChat({
+      id: 'annotation-1', anchorKey: 'message-1', start: 0, end: 16,
+      quote: 'selected context', comment: '',
+    })
+    await vi.waitFor(() => { expect(b.layoutFake.openSideChat).toHaveBeenCalledTimes(1) })
+    expect(b.runtime.sessions.calls).toContainEqual({
+      method: 'fork', args: [{ sessionId: ROOT, increaseTitle: true, temporary: true }],
+    })
+    expect(chatView.instance.store.getSnapshot()).toMatchObject({
+      sideChatSessionId: ROOT,
+    })
+    expect(b.inputApi(ROOT).state.getSnapshot().annotations).toEqual([
+      expect.objectContaining({ quote: 'selected context', comment: '' }),
+    ])
+
+    const sideChatView = b.chatViewApi(SIDE)
+    expect(chatView.injected.returnToParent).toBeUndefined()
+    expect(sideChatView.injected.returnToParent?.(17, '完整侧边回答')).toBe(true)
+    expect(b.inputApi(ROOT).state.getSnapshot().annotations).toEqual([
+      expect.objectContaining({ quote: 'selected context', comment: '' }),
+      expect.objectContaining({
+        id: 'sidechat:side-1:17',
+        quote: '完整侧边回答',
+        comment: '',
+      }),
+    ])
     await b.runtime.dispose()
   })
 
@@ -340,7 +378,7 @@ describe('details inject API', () => {
     const b = await bench()
     const entry = b.entryOf('details')
     const injected = (entry.inject as unknown as () => DetailsInjected)()
-    expect(Object.keys(injected)).toEqual(['closeDetails'])
+    expect(Object.keys(injected)).toEqual(['closeDetails', 'openLocation'])
     injected.closeDetails()
     expect(b.layoutFake.closeDetails).toHaveBeenCalledTimes(1)
     // The shared handle: details resolves the SAME instance conversation writes.

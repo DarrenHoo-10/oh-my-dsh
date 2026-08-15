@@ -49,6 +49,11 @@ export function SidebarRoot({
   t,
   renderSlot,
 }: SidebarRootComponentProps) {
+  useEffect(() => {
+    const onDesktopToggle = (): void => { toggleSidebar() }
+    window.addEventListener('dsh:desktop-toggle-sidebar', onDesktopToggle)
+    return () => { window.removeEventListener('dsh:desktop-toggle-sidebar', onDesktopToggle) }
+  }, [toggleSidebar])
   // Wide content stays mounted while the collapse animates (fading via
   // .collapsed .wide), unmounts at settle, and remounts right away on expand.
   const [settled, setSettled] = useState(collapsed)

@@ -98,6 +98,18 @@ describe('matrix row: plain', () => {
     expect(sink).toHaveBeenCalledWith('普通消息', [], 'queue')
     expect(shell.snapshot.phase).toBe('plain')
   })
+
+  it('sends commented transcript excerpts as model-visible context', () => {
+    const { shell, sink } = bench()
+    shell.addAnnotation({
+      id: 'annotation-1', anchorKey: 'message-1', start: 2, end: 8,
+      quote: '原文片段', comment: '解释这一段',
+    })
+
+    shell.submit('queue')
+
+    expect(sink).toHaveBeenCalledWith('[选中文本 1]\n原文片段\n评论：解释这一段', [], 'queue')
+  })
 })
 
 describe('matrix row: claimed', () => {

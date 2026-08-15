@@ -2,6 +2,7 @@
 /** Chat-store actions, scoped persistence, and instance isolation. */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createChatStore } from '../src/client/stores.ts'
+import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 
 const KEY = 'dsh.conversation.chat'
 
@@ -12,7 +13,10 @@ beforeEach(() => {
 describe('createChatStore', () => {
   it('init shape: empty selection/draft/view', () => {
     const store = createChatStore().create()
-    expect(store.store.getSnapshot()).toEqual({ selection: null, draft: '', view: null, inspect: null })
+    expect(store.store.getSnapshot()).toEqual({
+      selection: null, draft: '', view: null, inspect: null,
+      sideChatSessionId: null, sideChatTabs: [], activeSideChatTabId: null,
+    })
   })
 
   it('actions cover the declared write set', () => {
@@ -33,6 +37,18 @@ describe('createChatStore', () => {
     expect(store.store.getSnapshot().inspect).toEqual({ callId: 'c1' })
     store.actions.setInspect(null)
     expect(store.store.getSnapshot().inspect).toBeNull()
+
+    store.actions.startSideChat('child' as SessionId)
+    expect(store.store.getSnapshot()).toMatchObject({
+      sideChatSessionId: 'child',
+      sideChatTabs: [{ id: 'child', sessionId: 'child' }],
+    })
+    store.actions.openSideChat('child-2' as SessionId)
+    store.actions.startSideChat('child-3' as SessionId)
+    expect(store.store.getSnapshot()).toMatchObject({
+      sideChatSessionId: 'child-3',
+      sideChatTabs: [{ id: 'child-3', sessionId: 'child-3' }],
+    })
   })
 
   it('persists per scope key and rehydrates a fresh instance', () => {
@@ -53,6 +69,33 @@ describe('createChatStore', () => {
     // A sibling scope starts clean.
     const other = createChatStore().create('sess-2')
     expect(other.store.getSnapshot().draft).toBe('')
+  })
+
+  it('keeps temporary side-chat tabs out of persisted state', () => {
+    const scopedKey = `${KEY}.sess-side`
+    localStorage.setItem(scopedKey, JSON.stringify({
+      selection: null, draft: 'kept', view: null, inspect: null,
+      sideChatSessionId: 'dead-child',
+      sideChatTabs: [{ id: 'dead-child', sessionId: 'dead-child' }],
+      activeSideChatTabId: 'dead-child',
+    }))
+
+    const revived = createChatStore().create('sess-side')
+    expect(revived.store.getSnapshot()).toMatchObject({
+      draft: 'kept',
+      sideChatSessionId: null,
+      sideChatTabs: [],
+      activeSideChatTabId: null,
+    })
+
+    revived.actions.openSideChat('live-child' as SessionId)
+    expect(revived.store.getSnapshot().sideChatTabs).toHaveLength(1)
+    expect(JSON.parse(localStorage.getItem(scopedKey)!)).toMatchObject({
+      draft: 'kept',
+      sideChatSessionId: null,
+      sideChatTabs: [],
+      activeSideChatTabId: null,
+    })
   })
 
   it('clearPersisted removes the scope entry (session-death cleanup hook)', () => {

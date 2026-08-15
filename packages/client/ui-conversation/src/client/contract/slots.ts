@@ -15,7 +15,7 @@ import type { MessageId } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from '../input/blocks.ts'
 import type {
-  ComposerKeyboard, DraftAttachmentId, EditSelection, InputActions, InputNotice, InputState,
+  ComposerAnnotation, ComposerKeyboard, DraftAttachmentId, EditSelection, InputActions, InputNotice, InputState,
 } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
 import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submission.ts'
@@ -130,6 +130,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * zero owner changes.
      */
     'conversation.composer': { kind: 'chain'; scope: 'session'; owner: ComposerChainProps }
+    /** Complete active-session composer reused by the main and contextual chat columns. */
+    'conversation.session.composer': { kind: 'single'; scope: 'session'; owner: SessionComposerOwnerProps }
     /**
      * The hero-phase Workspace picker hole: rendered by ConversationRoot
      * while the session is blank (picking another workspace switches to that
@@ -287,6 +289,8 @@ export interface ConvViewOwnerProps {
   inspect?: { callId: CallId } | null
   /** Acknowledge the inspect request once applied (clears the store field). */
   onInspectDone?: () => void
+  /** Hide nodes before this event seq while retaining them in Session/model history. */
+  visibleFromSeq?: number
 }
 
 /**
@@ -361,6 +365,11 @@ export interface ChatNodeOwnerProps {
   openFile: (path: string) => void
   inspectCall: (callId: CallId) => void
   forkAt: (seq: number) => void
+  /**
+   * Attach one finalized side-chat answer to its source Session composer.
+   * Absent for ordinary Session views.
+   */
+  returnToParent?: ((seq: number, text: string) => boolean) | undefined
   /** Resolve a session-authorized historical image for inline display. */
   loadImage: (attachment: ImageAttachmentRef) => Promise<string>
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
@@ -424,6 +433,23 @@ export interface ConversationInjected {
   hooks: { composerBlock: ObservableSnapshot<ComposerBlock | undefined> }
 }
 
+/** Optional content placed above an active Session composer card. */
+export interface SessionComposerOwnerProps {
+  accessory?: ReactNode
+}
+
+/** Session-local block source consumed by the shared active composer. */
+export interface SessionComposerInjected {
+  hooks: { composerBlock: ObservableSnapshot<ComposerBlock | undefined> }
+}
+
+/** Full active composer props shared by the main and side-chat columns. */
+export type SessionComposerProps = PropsRuntime<'conversation.session.composer'> & PropsRenderSlots<
+  | 'conversation.composer' | 'conversation.composer.bar' | 'conversation.input.overlay'
+  | 'conversation.input.dock' | 'conversation.composer.dock'
+  | 'conversation.input.left' | 'conversation.input.right'
+> & InjectFace<SessionComposerInjected>
+
 /** Business callbacks injected into the strict Session body seat. */
 export interface ConversationSessionInjected {
   /** Views projected from the `conversation.view` slot ledger. */
@@ -448,6 +474,8 @@ export interface ConversationSessionHeaderInjected {
   }
   /** Select a real Session through the runtime navigation owner. */
   open: (sessionId: SessionId) => void
+  /** Toggle the Tool-details panel along the bottom edge. */
+  toggleBottomPanel: () => void
 }
 
 /**
@@ -569,6 +597,7 @@ export interface ComposerChainProps {
 export type ConversationSlotProps =
   PropsRuntime<'conversation'> & PropsRenderSlots<
     | 'conversation.session' | 'conversation.session.header'
+    | 'conversation.session.composer'
     | 'conversation.composer' | 'conversation.composer.bar'
     | 'conversation.input.overlay'
     | 'conversation.input.dock' | 'conversation.composer.dock'
@@ -675,6 +704,12 @@ export interface ChatScrollPosition {
 export interface ChatViewInjected {
   /** Selection write + details panel opening in one gesture (store action + layout orchestration). */
   openDetails: (target: SelectionTarget) => void
+  /** Attach a commented transcript selection to the current composer without sending. */
+  addToConversation: (annotation: ComposerAnnotation) => void
+  /** Remove one pending transcript annotation from the current composer. */
+  removeFromConversation: (id: string) => void
+  /** Fork the current Session and attach a transcript annotation to the child composer. */
+  askInSideChat: (annotation: ComposerAnnotation) => void
   /**
    * Open a tool-arg filesystem path with the host OS default application
    * (relative paths resolve against the session cwd).
@@ -699,6 +734,11 @@ export interface ChatViewInjected {
   /** Fork through the completed turn ending at the eligible message `seq`, then open the child. */
   forkAt: (seq: number) => void
   /**
+   * Attach one finalized side-chat answer to its source Session composer.
+   * Absent when this view does not address a temporary side-chat fork.
+   */
+  returnToParent?: ((seq: number, text: string) => boolean) | undefined
+  /**
    * Prose file-mention vocabulary for one closing message, from the optional
    * {@link ChatFileMentions} service (resolved lazily per call, so composing
    * the provider in or out takes effect live). Undefined when the service is
@@ -719,11 +759,30 @@ export type ChatViewSlotProps =
 export interface DetailsInjected {
   /** Close the details panel (layout geometry stays with ctx.layout). */
   closeDetails: () => void
+  /** Reveal the current Session Workspace with the host operating system. */
+  openLocation: () => void
 }
 
 /** Full details-slot props: selection store, Tool output seat, injected close callback, and locale. */
 export type DetailsSlotProps = PropsRuntime<'details'> & PropsRenderSlots<'conversation.details.tool'>
   & PropsStore<ChatStore> & DetailsInjected & PropsLocale<'conversation'>
+
+/** Business callbacks for the contextual side-chat panel. */
+export interface SideChatInjected {
+  closeSideChat: () => void
+  /** Ensure an off-stage fork has loaded its conversation window. */
+  openConversationWindow: (sessionId: SessionId) => Promise<void>
+  /** Destroy one Host-owned temporary side-chat fork and remove its client projection. */
+  discardSideChat: (sessionId: SessionId) => Promise<void>
+  openLocation: (sessionId: SessionId) => void
+  /** Fork another contextual tab from the current main Session. */
+  createSideChat: () => void
+}
+
+/** Full right-side contextual chat props. */
+export type SideChatSlotProps = PropsRuntime<'sidechat'> & PropsStore<ChatStore>
+  & PropsRenderSlots<'conversation.view' | 'conversation.session.composer'>
+  & SideChatInjected & PropsLocale<'conversation'>
 
 /** Owner share common to the hero / New-Session Workspace pickers. */
 export interface EmptyWorkspaceOwnerProps {

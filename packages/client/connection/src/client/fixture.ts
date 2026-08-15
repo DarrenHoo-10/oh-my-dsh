@@ -2309,7 +2309,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         return ok(request, { title: normalized, seq: appended.seq })
       },
       fork: (request) => {
-        const { sessionId, atSeq } = request.payload
+        const { sessionId, atSeq, temporary = false } = request.payload
         const source = summaryOf(sessionId)
         if (source === undefined) {
           return err(request, {
@@ -2340,23 +2340,34 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         while (cut < log.length && log[cut]?.type !== 'turn/start') cut++
         const child: SessionSummary = {
           sessionId: sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: false,
-          parentSessionId: sessionId,
+          parentSessionId: sessionId, seedLength: cut,
           ...source.cwd === undefined ? {} : { cwd: source.cwd },
         }
         logs.set(child.sessionId, log.slice(0, cut))
         sessions.push(child)
         emitHost({
           type: 'host/session-added', sessionId: child.sessionId, blank: false,
-          parentSessionId: sessionId,
+          parentSessionId: sessionId, seedLength: cut,
           ...source.cwd === undefined ? {} : { cwd: source.cwd },
         })
         const workspace = workspaces.find(w => w.sessionIds.includes(sessionId))
-        if (workspace !== undefined) {
+        if (!temporary && workspace !== undefined) {
           workspace.sessionIds = [child.sessionId, ...workspace.sessionIds]
           workspace.updatedAt = new Date().toISOString()
           emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
         }
-        return ok(request, { sessionId: child.sessionId })
+        return ok(request, { sessionId: child.sessionId, seedLength: cut })
+      },
+      discard: (request) => {
+        const { sessionId } = request.payload
+        const index = sessions.findIndex(item => item.sessionId === sessionId)
+        if (index < 0) {
+          return err(request, { code: 'session-not-found', message: `no session ${sessionId}`, details: { sessionId } })
+        }
+        sessions.splice(index, 1)
+        logs.delete(sessionId)
+        emitHost({ type: 'host/session-removed', sessionId })
+        return ok(request, { discarded: true as const })
       },
       history: async (request) => {
         const log = logs.get(request.payload.sessionId) ?? []
@@ -3085,6 +3096,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.selectModel': return this.api.sessions.selectModel(request)
       case 'session.rename': return this.api.sessions.rename(request)
       case 'session.fork': return this.api.sessions.fork(request)
+      case 'session.discard': return this.api.sessions.discard(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.attachment': return this.api.sessions.attachment(request)
       case 'session.updateQueue': return this.api.sessions.updateQueue(request)

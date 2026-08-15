@@ -8,7 +8,9 @@ import type { HostDescription, IApiClient } from './api.ts'
 import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
-import { createWebConnectionRpc } from './rpc.ts'
+import { DesktopApiClient } from './desktop-api-client.ts'
+import { createDesktopConnectionRpc, createWebConnectionRpc } from './rpc.ts'
+import { getDesktopBridge } from './desktop-bridge.ts'
 import { isLoopbackHostname } from '../loopback-hostname.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 
@@ -40,6 +42,15 @@ export {
 // controller remains package-internal.
 export type { ConnectionConfig, ConnectionSinks, ConnectionState }
 export type { ClientConnectionRpc } from '../rpc.ts'
+export type { DesktopRendererBridge } from './desktop-bridge.ts'
+export type {
+  DesktopBootEntry,
+  DesktopBootManifest,
+  DesktopFetchRequest,
+  DesktopFetchResponse,
+  DesktopStreamChannel,
+} from '../desktop-protocol.ts'
+export { DesktopApiClient } from './desktop-api-client.ts'
 
 /** Observable Host description published by each completed connection handshake. */
 export interface HostDescriptionSource {
@@ -85,8 +96,11 @@ export function apply(ctx: Context): void {
   const pageLocation = typeof location === 'undefined' ? undefined : location
   const fixture = pageLocation !== undefined && new URLSearchParams(pageLocation.search).has('fixture')
   const fixtureClient = fixture ? new FixtureApiClient() : undefined
-  const api: IApiClient = fixtureClient ?? new WebApiClient()
-  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc()
+  const desktop = getDesktopBridge()
+  const api: IApiClient = fixtureClient
+    ?? (desktop === undefined ? new WebApiClient() : new DesktopApiClient())
+  const rpc = fixtureClient?.rpc
+    ?? (desktop === undefined ? createWebConnectionRpc() : createDesktopConnectionRpc())
   let started = false
   let description: HostDescription | undefined
   const descriptionListeners = new Set<() => void>()
@@ -103,7 +117,7 @@ export function apply(ctx: Context): void {
   }
   const handle: ConnectionHandle = {
     api,
-    isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
+    isLoopback: desktop !== undefined || pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
     hostDescription: {
       getSnapshot: () => description,
       subscribe: (listener) => {

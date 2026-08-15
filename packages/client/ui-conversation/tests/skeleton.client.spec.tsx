@@ -160,6 +160,7 @@ function mount(
           renderSlot={renderSlot as never}
           views={views}
           open={open}
+          toggleBottomPanel={vi.fn()}
           t={t}
         />
       )

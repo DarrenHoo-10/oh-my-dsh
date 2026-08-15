@@ -44,6 +44,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async create(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-new' as never } } }
       },
+      async discard(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { discarded: true as const } } }
+      },
       async history(request) {
         if (request.payload.sessionId === ('with-projections' as never)) {
           return {
@@ -91,7 +94,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: true, value: { title: request.payload.title, seq: 0 } } }
       },
       async fork(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-fork' as never } } }
+        return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-fork' as never, seedLength: 0 } } }
       },
       async prompt(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }

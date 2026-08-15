@@ -38,6 +38,32 @@ function contentParts(content: readonly unknown[]): {
   return { text: texts.join(''), images, rest }
 }
 
+interface SentAnnotation {
+  readonly quote: string
+  readonly comment: string
+}
+
+/** Split the model-visible annotation envelope from the human prompt shown in chat. */
+function sentAnnotationEnvelope(text: string): { text: string; annotations: readonly SentAnnotation[] } | null {
+  if (!text.startsWith('[选中文本 1]\n')) return null
+  const questionMarker = '\n\n[问题]\n'
+  const questionAt = text.indexOf(questionMarker)
+  const context = questionAt === -1 ? text : text.slice(0, questionAt)
+  const question = questionAt === -1 ? '' : text.slice(questionAt + questionMarker.length)
+  const sections = context.split(/\n\n(?=\[选中文本 \d+\]\n)/)
+  const annotations: SentAnnotation[] = []
+  for (const [index, section] of sections.entries()) {
+    const match = /^\[选中文本 (\d+)\]\n([\s\S]*)$/.exec(section)
+    if (match === null || Number(match[1]) !== index + 1) return null
+    const body = match[2] ?? ''
+    const commentAt = body.lastIndexOf('\n评论：')
+    annotations.push(commentAt === -1
+      ? { quote: body, comment: '' }
+      : { quote: body.slice(0, commentAt), comment: body.slice(commentAt + '\n评论：'.length) })
+  }
+  return annotations.length === 0 ? null : { text: question, annotations }
+}
+
 function retrySeconds(milliseconds: number): number {
   return Math.max(1, Math.ceil(milliseconds / 1_000))
 }
@@ -188,18 +214,36 @@ function UserStyleBubble({
   t: ChatViewSlotProps['t']
 }): ReactNode {
   const { text, images, rest } = contentParts(content)
+  const envelope = sentAnnotationEnvelope(text)
+  const visibleText = envelope?.text ?? text
   const truncated = (total: number): string => t('json.truncated', { total })
-  const showBubble = text !== '' || rest.length > 0
+  const showBubble = visibleText !== '' || rest.length > 0
   return (
     <div className={css.userRow} data-pending-steering={pending || undefined} data-time-hover-root>
       <div className={css.userStack}>
         <ImageGallery images={images} load={imageLoader} align="end" labels={messageImageLabels(t)} />
         {showBubble && <div className={css.bubble}>
-          {projectUserText(text)}
+          {projectUserText(visibleText)}
           {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
         </div>}
+        {envelope !== null && (
+          <button type="button" className={css.sentAnnotationPill}
+            aria-label={t('selection.sentCount', { count: envelope.annotations.length })}>
+            <span className={css.sentAnnotationGlyph} aria-hidden />
+            {t('selection.sentCount', { count: envelope.annotations.length })}
+            <span className={css.sentAnnotationPreview} role="tooltip">
+              {envelope.annotations.map((annotation, index) => (
+                <span key={index}>
+                  <strong>{index + 1}. {t('selection.selectedText')}</strong>
+                  <span>{annotation.quote}</span>
+                  {annotation.comment !== '' && <span>{t('selection.comment')} {annotation.comment}</span>}
+                </span>
+              ))}
+            </span>
+          </button>
+        )}
       </div>
-      {actions?.(text)}
+      {actions?.(visibleText)}
     </div>
   )
 }

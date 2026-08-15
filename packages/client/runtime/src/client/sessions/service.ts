@@ -53,6 +53,8 @@ export interface SessionSummary {
    */
   agentPreset?: string
   parentId?: SessionId
+  /** Number of inherited seed events in a forked Session. */
+  seedLength?: number
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
   origin?: 'subagent'
   running: boolean
@@ -496,7 +498,8 @@ export class SessionRuntime implements ISessions {
    * @param opts - source session id, the optional event seq anchoring the
    *   cut (the boundary is the first turn/end at or after it; an in-log
    *   anchor in an open turn is unavailable rather than clipped backward),
-   *   and whether to increment an inherited durable title before resolving.
+   *   whether to increment an inherited durable title before resolving, and
+   *   whether the Host must own the child as a discard-only temporary fork.
    *   A fractional anchor floors to a real event seq: the frozen nodes of an
    *   interrupted turn carry flow-ordering seqs between two events, and the
    *   wire takes integers only.
@@ -508,6 +511,7 @@ export class SessionRuntime implements ISessions {
     sessionId: SessionId
     atSeq?: number
     increaseTitle?: boolean
+    temporary?: boolean
   }): Promise<SessionId> {
     const sourceTitle = opts.increaseTitle
       ? this.list.getSnapshot().byId[opts.sessionId]?.title
@@ -518,6 +522,7 @@ export class SessionRuntime implements ISessions {
       // turn/start), so the host's first-turn/end-at-or-after cut still ends
       // on that turn — never clipped back to the previous one.
       ...(opts.atSeq === undefined ? {} : { atSeq: Math.floor(opts.atSeq) }),
+      ...(opts.temporary === undefined ? {} : { temporary: opts.temporary }),
     })
     if (!result.ok) throw new SessionForkError(result.error, opts.sessionId)
     this.projectList()
@@ -529,6 +534,13 @@ export class SessionRuntime implements ISessions {
       if (!renamed.ok) throw new Error(`fork child rename failed: ${renamed.error.code}: ${renamed.error.message}`)
     }
     return childId
+  }
+
+  /** Dispose one Host-owned temporary fork and project its removal immediately. */
+  async discardTemporary(sessionId: SessionId): Promise<void> {
+    const result = await this.manager.discard(sessionId)
+    if (!result.ok) throw new Error(`temporary session discard failed: ${result.error.code}: ${result.error.message}`)
+    this.projectList()
   }
 
   /**
@@ -583,9 +595,26 @@ export class SessionRuntime implements ISessions {
    * {@link SessionRuntime.currentProvideInfo}). Pure resolution — render-safe:
    * no staging, no window side effects (StrictMode double-invokes and
    * concurrent discarded passes must stay free).
+   * @param id - Session whose render bundle should be resolved.
+   * @returns The identity-stable render bundle, or undefined for an unknown Session.
    */
-  private provideInfo(id: string): SessionProvideInfo | undefined {
+  provideInfoFor(id: string): SessionProvideInfo | undefined {
     return this.resolve(id as SessionId)?.provideInfo
+  }
+
+  /**
+   * Load one listed Session's history window without moving the application stage.
+   * @param id - Session whose conversation surface needs a window.
+   * @returns completion of the Session's idempotent open operation.
+   */
+  async openWindow(id: SessionId): Promise<void> {
+    const record = this.resolve(id)
+    if (record === undefined) throw new Error(`session "${id}" is not locally addressable`)
+    await record.session.open()
+    const snapshot = record.session.getSnapshot()
+    if (snapshot.openState === 'error') {
+      throw new Error(snapshot.openError?.message ?? `session "${id}" history window failed to load`)
+    }
   }
 
   /**
@@ -593,7 +622,7 @@ export class SessionRuntime implements ISessions {
    * return the static no-session projection rather than removing hook props.
    */
   private maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo {
-    return (id === undefined ? undefined : this.provideInfo(id)) ?? this.provideChannel.maybeInfo
+    return (id === undefined ? undefined : this.provideInfoFor(id)) ?? this.provideChannel.maybeInfo
   }
 
   /**
@@ -650,10 +679,10 @@ export class SessionRuntime implements ISessions {
     return record
   }
 
-  /** The one aliveness predicate shared by scope mint and prune: host-listed or currently addressed. */
+  /** The one aliveness predicate shared by scope mint and prune. */
   private eligible(id: SessionId): boolean {
     const { ids, current } = this.list.getSnapshot()
-    return current === id || ids.includes(id)
+    return current === id || ids.includes(id) || this.manager.hasTemporary(id)
   }
 
   /** Project the manager's list snapshot into the store (title derivation is display-only). */
@@ -681,8 +710,23 @@ export class SessionRuntime implements ISessions {
         ...(entry.title !== undefined ? { title: entry.title } : {}),
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
+        ...(entry.seedLength !== undefined ? { seedLength: entry.seedLength } : {}),
         ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
         ...(entry.agentPreset !== undefined ? { agentPreset: entry.agentPreset } : {}),
+      }
+    }
+    // Temporary side-chat forks are addressable by SessionProvider but never
+    // enter `ids`, so Workspace and sidebar projections cannot render them.
+    for (const entry of this.manager.temporaryEntries()) {
+      byId[entry.sessionId] = {
+        id: entry.sessionId,
+        displayTitle: entry.sessionId,
+        ...(entry.cwd === undefined ? {} : { cwd: entry.cwd }),
+        parentId: entry.parentSessionId,
+        seedLength: entry.seedLength,
+        running: false,
+        blank: false,
+        updatedAt: 0,
       }
     }
     if (current !== undefined && currentAddress !== undefined) {

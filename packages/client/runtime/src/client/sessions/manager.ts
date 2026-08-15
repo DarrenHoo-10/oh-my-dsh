@@ -54,6 +54,14 @@ export interface SessionListSnapshot {
   currentAddress: SubagentAddress | undefined
 }
 
+/** Client-only metadata for a Host-owned temporary side-chat Session. */
+export interface TemporarySessionEntry {
+  sessionId: SessionId
+  parentSessionId: SessionId
+  seedLength: number
+  cwd?: string
+}
+
 /** One parent-addressed durable catalog projected through the sessions snapshot. */
 export interface SubagentCatalogSnapshot extends SubagentCatalog {
   state: 'loading' | 'ready' | 'error'
@@ -128,6 +136,8 @@ export class SessionManager {
    *  same store so history-baseline seeding and frames converge on one row set. */
   private readonly projectionStores = new Map<SessionId, ProjectionValueStore>()
   private summaries: SessionSummary[] = []
+  /** Temporary forks stay addressable without entering the durable Session list. */
+  private readonly temporarySessions = new Map<SessionId, TemporarySessionEntry>()
   private listState: 'idle' | 'loading' | 'error' = 'idle'
   /** Arrival phase; the pending → ready edge fires on the first successful pull (see SessionListPhase). */
   private listPhase: SessionListPhase = 'pending'
@@ -574,32 +584,81 @@ export class SessionManager {
    * child carries the source's history, so it is never blank; lineage rides
    * parentSessionId so the list nests it under its source. A child published
    * before Workspace attachment fails is also reconciled into the list.
-   * @param opts - source session and the optional seq anchoring the cut.
+   * @param opts - source session, optional seq anchoring the cut, and temporary ownership.
    * @returns the fork result (the child session id).
    */
   async fork(
-    opts: { sessionId: SessionId; atSeq?: number },
-  ): Promise<RpcResult<{ sessionId: SessionId }>> {
+    opts: { sessionId: SessionId; atSeq?: number; temporary?: boolean },
+  ): Promise<RpcResult<{ sessionId: SessionId; seedLength: number }>> {
     try {
       const source = this.summaries.find(s => s.sessionId === opts.sessionId)
       const { result } = await this.api.sessions.fork({
         sessionId: opts.sessionId,
         ...opts.atSeq === undefined ? {} : { atSeq: opts.atSeq },
+        ...opts.temporary === undefined ? {} : { temporary: opts.temporary },
       })
       const childId = result.ok
         ? result.value.sessionId
         : workspaceAttachSessionId(result.error)
       if (childId !== undefined) {
-        this.recordMutation({ kind: 'upsert', summary: {
-          sessionId: childId, updatedAt: Date.now(), running: false, blank: false,
-          parentSessionId: opts.sessionId,
-          ...(source?.cwd !== undefined ? { cwd: source.cwd } : {}),
-        } })
+        if (opts.temporary === true && result.ok) {
+          this.temporarySessions.set(childId, {
+            sessionId: childId,
+            parentSessionId: opts.sessionId,
+            seedLength: result.value.seedLength,
+            ...(source?.cwd === undefined ? {} : { cwd: source.cwd }),
+          })
+          this.notifier.markDirty()
+        } else {
+          this.recordMutation({ kind: 'upsert', summary: {
+            sessionId: childId, updatedAt: Date.now(), running: false, blank: false,
+            parentSessionId: opts.sessionId,
+            ...(result.ok ? { seedLength: result.value.seedLength } : {}),
+            ...(source?.cwd !== undefined ? { cwd: source.cwd } : {}),
+          } })
+        }
       }
       return result
     } catch (error) {
       return transportError(error)
     }
+  }
+
+  /**
+   * Dispose one Host-owned temporary fork and remove its optimistic summary.
+   * @param sessionId - Temporary Session to destroy.
+   * @returns The Host discard result, including transport failures.
+   */
+  async discard(sessionId: SessionId): Promise<RpcResult<{ discarded: true }>> {
+    try {
+      const { result } = await this.api.sessions.discard({ sessionId })
+      if (result.ok) {
+        this.temporarySessions.delete(sessionId)
+        // Also removes a row admitted by an older client generation before
+        // temporary Sessions had their own registry.
+        this.recordMutation({ kind: 'remove', sessionId })
+      }
+      return result
+    } catch (error) {
+      return transportError(error)
+    }
+  }
+
+  /**
+   * Test whether an id belongs to an active temporary fork.
+   * @param sessionId - Candidate Session id.
+   * @returns Whether the temporary registry owns the id.
+   */
+  hasTemporary(sessionId: SessionId): boolean {
+    return this.temporarySessions.has(sessionId)
+  }
+
+  /**
+   * Snapshot the temporary forks that must remain render-addressable.
+   * @returns Client-only temporary Session metadata.
+   */
+  temporaryEntries(): readonly TemporarySessionEntry[] {
+    return [...this.temporarySessions.values()]
   }
 
   /**
@@ -799,6 +858,7 @@ export class SessionManager {
         this.mergeSummary({
           sessionId: frame.sessionId, updatedAt: Date.now(), running: false, blank: frame.blank,
           ...(frame.parentSessionId !== undefined ? { parentSessionId: frame.parentSessionId } : {}),
+          ...(frame.seedLength !== undefined ? { seedLength: frame.seedLength } : {}),
           ...(frame.origin !== undefined ? { origin: frame.origin } : {}),
           ...(frame.cwd !== undefined ? { cwd: frame.cwd } : {}),
           ...(frame.agentPreset !== undefined ? { agentPreset: frame.agentPreset } : {}),
@@ -1044,7 +1104,8 @@ export class SessionManager {
       if (
         prev !== undefined && prev.updatedAt === entry.updatedAt && prev.running === entry.running
         && prev.blank === entry.blank && prev.agentPreset === entry.agentPreset
-        && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
+        && prev.parentSessionId === entry.parentSessionId && prev.seedLength === entry.seedLength
+        && prev.cwd === entry.cwd
         && prev.origin === entry.origin && prev.title === entry.title && prev.depth === entry.depth
         && prev.pendingInteraction === entry.pendingInteraction
         && prev.projectionValues === entry.projectionValues
@@ -1090,6 +1151,8 @@ function applyMutation(summaries: readonly SessionSummary[], mutation: SessionLi
         ...(existing.cwd === undefined && mutation.summary.cwd !== undefined ? { cwd: mutation.summary.cwd } : {}),
         ...(existing.parentSessionId === undefined && mutation.summary.parentSessionId !== undefined
           ? { parentSessionId: mutation.summary.parentSessionId } : {}),
+        ...(existing.seedLength === undefined && mutation.summary.seedLength !== undefined
+          ? { seedLength: mutation.summary.seedLength } : {}),
         ...(existing.origin === undefined && mutation.summary.origin !== undefined
           ? { origin: mutation.summary.origin } : {}),
         // Newest wins, not fill-only: a blank-session preset switch replaces
@@ -1099,6 +1162,7 @@ function applyMutation(summaries: readonly SessionSummary[], mutation: SessionLi
           ? { agentPreset: mutation.summary.agentPreset } : {}),
       }
       if (filled.cwd === existing.cwd && filled.parentSessionId === existing.parentSessionId
+        && filled.seedLength === existing.seedLength
         && filled.origin === existing.origin && filled.blank === existing.blank
         && filled.agentPreset === existing.agentPreset) return [...summaries]
       return summaries.map(summary => summary.sessionId === mutation.summary.sessionId ? filled : summary)

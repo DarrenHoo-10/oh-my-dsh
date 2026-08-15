@@ -7,7 +7,7 @@
 - id: system-prompt
   config:
     persona: >-
-      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. Use the language of the user's latest message for all natural-language output, including reasoning summaries and tool-call descriptions, unless the user requests another language. Preserve code, commands, identifiers, paths, and quoted text in their original form.
 
 # The shared module-reload HMR row stays off; the launcher's watch-only
 # fallback still keeps the user patch layers live until the run exits.

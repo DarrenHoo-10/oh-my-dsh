@@ -25,6 +25,8 @@ export interface Win32DialogWorkerLike {
    * @returns whether a kill signal was delivered.
    */
   kill(): boolean
+  /** Close the IPC channel after the terminal result has been received. */
+  disconnect?(): void
   /**
    * Release the event-loop reference. Called once the pick settles so a
    * child stuck in the native modal call never blocks process exit.
@@ -131,12 +133,14 @@ export async function pickWin32Directory(
           return
         case 'done':
           settle(() => {
+            worker.disconnect?.()
             if (signal.aborted) reject(new Error('native directory picker aborted'))
             else resolve(message.path)
           })
           return
         case 'error':
           settle(() => {
+            worker.disconnect?.()
             reject(new Error(`win32 folder dialog failed: ${message.message}`))
           })
           return

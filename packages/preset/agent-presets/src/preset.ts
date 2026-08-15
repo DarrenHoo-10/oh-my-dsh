@@ -54,6 +54,8 @@ export interface Config {
   default: string
   /** Scanned roots in precedence order; an earlier root wins a duplicate id. */
   roots: PresetRoot[]
+  /** Optional installed-runtime URL used to resolve bare packages inside preset compositions. */
+  moduleBaseUrl?: string
   /**
    * Append the harness home's `USER_PRESET_DIR` as a `user` root, after every
    * configured root. False mounts a roster over `roots` alone.

@@ -2,6 +2,19 @@
 
 import { createSnapshotStore, type SessionId, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 
+interface DesktopDownloadBridge {
+  fetch(requestId: string, request: {
+    path: string
+    method: string
+    headers: Record<string, string>
+  }): Promise<{ status: number; headers: Record<string, string>; body?: string; bodyEncoding?: 'utf8' | 'base64' }>
+  saveFile?(filename: string, bodyBase64: string): Promise<boolean>
+}
+
+function desktopBridge(): DesktopDownloadBridge | undefined {
+  return (globalThis as { __DSH_DESKTOP__?: DesktopDownloadBridge }).__DSH_DESKTOP__
+}
+
 /** Download phases presented by the shared modal. */
 export type SessionLogDownloadStatus = 'downloading' | 'success' | 'error'
 
@@ -51,6 +64,15 @@ function hostBase(): string {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function utf8Base64(value: string): string {
+  const bytes = new TextEncoder().encode(value)
+  let binary = ''
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
 }
 
 /** Owns one in-flight browser download per Session and publishes modal state. */
@@ -114,12 +136,32 @@ export class SessionLogDownloadController {
       const url = new URL('/api/session.export', hostBase())
       url.searchParams.set('sessionId', sessionId)
       url.searchParams.set('includeDescendants', 'true')
-      const response = await this.fetcher(url, { method: 'HEAD', signal })
+      const desktop = desktopBridge()
+      const response = desktop === undefined
+        ? await this.fetcher(url, { method: 'HEAD', signal })
+        : await desktop.fetch(crypto.randomUUID(), {
+          path: `${url.pathname}${url.search}`, method: 'HEAD', headers: {},
+        }).then(value => new Response(value.body, { status: value.status, headers: value.headers }))
       if (!response.ok) {
         const detail = await response.text().catch(() => '')
         throw new Error(`Export failed: HTTP ${response.status}${detail === '' ? '' : ` ${detail}`}`)
       }
-      this.save(url.toString(), sessionLogZipFilename(sessionId))
+      const filename = sessionLogZipFilename(sessionId)
+      if (desktop === undefined) {
+        this.save(url.toString(), filename)
+      } else {
+        const archive = await desktop.fetch(crypto.randomUUID(), {
+          path: `${url.pathname}${url.search}`, method: 'GET', headers: {},
+        })
+        if (archive.status < 200 || archive.status >= 300 || archive.body === undefined) {
+          throw new Error(`Export failed: HTTP ${archive.status}`)
+        }
+        const base64 = archive.bodyEncoding === 'base64'
+          ? archive.body
+          : utf8Base64(archive.body)
+        if (desktop.saveFile === undefined) throw new Error('Desktop save dialog is unavailable')
+        await desktop.saveFile(filename, base64)
+      }
       const open = this.store.getSnapshot().bySession[String(sessionId)]?.open ?? true
       this.publish(sessionId, { open, status: 'success', error: null })
     } catch (error: unknown) {

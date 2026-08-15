@@ -12,7 +12,7 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import { StatsLine, contextOccupancy, deriveStats, formatDuration, formatTokens, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
+import { StatsLine, cacheHitPercent, contextOccupancy, deriveStats, formatDuration, formatTokens, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 import { en, zh } from '../src/client/locales.ts'
 import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
@@ -374,6 +374,21 @@ describe('StatsLine', () => {
     })} />)
     expect(view.container.textContent)
       .toBe('1 turns · 1 steps| Cache hit 45%| Input 200 tok · Output 7 tok')
+  })
+
+  it('reserves 100 percent for a fully cached input', () => {
+    expect(cacheHitPercent({
+      uncachedInputTokens: 33,
+      outputTokens: 65,
+      cacheReadTokens: 7_360,
+      cacheWriteTokens: 0,
+    })).toBe(99)
+    expect(cacheHitPercent({
+      uncachedInputTokens: 0,
+      outputTokens: 65,
+      cacheReadTokens: 7_360,
+      cacheWriteTokens: 0,
+    })).toBe(100)
   })
 
   it('renders ZERO times during streaming chunk frames (RFC hard acceptance)', () => {

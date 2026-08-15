@@ -31,6 +31,15 @@ python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/
 python/**/__pycache__/
 python/**/.pytest_cache/
 apps/web/dist/
+apps/desktop/dist/
+apps/desktop/release*/
+/deepseek harness.exe
+/deepseek harness.exe.blockmap
+/latest.yml
+/builder-debug.yml
+/.icon-ico/
+/win-unpacked*/
+/.desktop-electron-dist-*/
 .artifacts/
 .playwright-mcp/
 .orig

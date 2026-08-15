@@ -104,13 +104,13 @@ export function formatDuration(ms: number): string {
 /**
  * Cache-hit share of prompt-side input over the whole durable log.
  * @param usage - the session's token-usage projection value.
- * @returns rounded integer percent, or null when no input was billed.
+ * @returns whole percent rounded down, or null when no input was billed.
  */
 export function cacheHitPercent(usage: TokenUsageProjection): number | null {
   const denominator = billedInputTokens(usage)
   return denominator === 0
     ? null
-    : Math.round(usage.cacheReadTokens / denominator * 100)
+    : Math.floor(usage.cacheReadTokens / denominator * 100)
 }
 
 /**

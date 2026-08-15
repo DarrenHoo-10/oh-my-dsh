@@ -22,11 +22,12 @@
  * @module @deepseek-ai/dsh-app-boot/profile
  */
 
+import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import {
-  existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync,
+  existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, statSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import { applyEntryPatches, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
@@ -113,11 +114,13 @@ export function resolveProfileDir(name: string, home: string = resolveDshHome())
 /** The shipped profile templates auto-initialized on first use, by name. */
 export const PROFILE_TEMPLATES: Record<string, readonly string[]> = {
   web: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'],
+  desktop: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-desktop-app'],
   headless: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless'],
 }
 
 /** Installation-owned bundle tuples normalized to the shipped template. */
 const INSTALLATION_OWNED_PROFILE_TUPLES: Record<string, readonly string[]> = {
+  desktop: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'],
   headless: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-headless'],
 }
 
@@ -141,6 +144,59 @@ const PROFILE_PNPM_WORKSPACE = `packages:
 nodeLinker: hoisted
 autoInstallPeers: false
 `
+
+const MODULE_FALLBACK_CACHE_VERSION = 1
+const MODULE_FALLBACK_CACHE_FILENAME = '.module-fallback-state.json'
+
+interface ModuleFallbackCache {
+  version: number
+  installation: string
+  directories: Record<string, number>
+}
+
+function installationFingerprint(installAnchor: string, manifestSource: string): string {
+  return createHash('sha256').update(resolve(installAnchor)).update('\0').update(manifestSource).digest('hex')
+}
+
+function validCacheDirectory(name: string): boolean {
+  return name === '.' || /^@[^/\\]+$/.test(name)
+}
+
+function moduleFallbackCacheMatches(cachePath: string, modulesDir: string, installation: string): boolean {
+  try {
+    const value: unknown = JSON.parse(readFileSync(cachePath, 'utf8'))
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+    const record = value as Record<string, unknown>
+    const cachedDirectories = record.directories
+    if (record.version !== MODULE_FALLBACK_CACHE_VERSION || record.installation !== installation
+      || typeof cachedDirectories !== 'object' || cachedDirectories === null || Array.isArray(cachedDirectories)) return false
+    const directories = Object.entries(cachedDirectories)
+    return directories.length > 0 && directories.every(([name, mtime]) => validCacheDirectory(name)
+      && typeof mtime === 'number' && Number.isFinite(mtime)
+      && statSync(name === '.' ? modulesDir : join(modulesDir, name)).mtimeMs === mtime)
+  } catch {
+    // A missing, stale, or partially written cache is equivalent to a cache miss.
+    return false
+  }
+}
+
+function writeModuleFallbackCache(
+  cachePath: string,
+  modulesDir: string,
+  installation: string,
+  packageNames: Iterable<string>,
+): void {
+  const names = new Set<string>(['.'])
+  for (const packageName of packageNames) {
+    if (packageName.startsWith('@')) names.add(packageName.slice(0, packageName.indexOf('/')))
+  }
+  const directories = Object.fromEntries([...names].sort().map(name => [
+    name,
+    statSync(name === '.' ? modulesDir : join(modulesDir, name)).mtimeMs,
+  ]))
+  const cache: ModuleFallbackCache = { version: MODULE_FALLBACK_CACHE_VERSION, installation, directories }
+  writeFileSync(cachePath, `${JSON.stringify(cache)}\n`)
+}
 
 /**
  * Initialize a profile directory: manifest, empty user patch layer, and the
@@ -224,7 +280,11 @@ export function healProfilesModuleFallback(installAnchor: string, home: string =
   const profilesDir = join(home, PROFILES_DIR)
   const modulesDir = join(profilesDir, 'node_modules')
   mkdirSync(modulesDir, { recursive: true })
-  const appManifest = JSON.parse(readFileSync(installAnchor, 'utf8')) as ProfileManifest
+  const appManifestSource = readFileSync(installAnchor, 'utf8')
+  const installation = installationFingerprint(installAnchor, appManifestSource)
+  const cachePath = join(profilesDir, MODULE_FALLBACK_CACHE_FILENAME)
+  if (moduleFallbackCacheMatches(cachePath, modulesDir, installation)) return
+  const appManifest = JSON.parse(appManifestSource) as ProfileManifest
   const links = new Map<string, string>()
   /* v8 ignore next -- a real app manifest always declares its name */
   if (appManifest.name !== undefined) links.set(appManifest.name, dirname(installAnchor))
@@ -252,6 +312,7 @@ export function healProfilesModuleFallback(installAnchor: string, home: string =
     mkdirSync(dirname(link), { recursive: true })
     ensureSymlink(link, target)
   }
+  writeModuleFallbackCache(cachePath, modulesDir, installation, links.keys())
 }
 
 /**

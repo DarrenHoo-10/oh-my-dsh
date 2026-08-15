@@ -13,7 +13,7 @@ import type {
   ReferenceInsert, InputTriggerController, TokenSpan,
 } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {
-  DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
+  ComposerAnnotation, DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
   PasteComponent, QueuedMessage, SessionInput, SubmitAttempt,
 } from './contract.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
@@ -75,6 +75,8 @@ export class SessionInputShell implements SessionInput {
   readonly actions: InputActions = {
     setDraft: (text) => { this.setDraft(text) },
     addImages: ids => this.addImages(ids),
+    addAnnotation: annotation => this.addAnnotation(annotation),
+    removeAnnotation: (id) => { this.removeAnnotation(id) },
     removeImage: (id) => { this.removeImage(id) },
     pruneImages: (ids) => { this.pruneImages(ids) },
     submit: () => { this.submit('queue') },
@@ -86,6 +88,7 @@ export class SessionInputShell implements SessionInput {
   private noticeSeq = 0
   private lastDraft = ''
   private imageIds: readonly DraftAttachmentId[] = []
+  private annotations: readonly ComposerAnnotation[] = []
   private disposed = false
   /** Draft persistence mirror (chat store write; receives the clipboard projection, never raw placeholders). */
   private mirrorFn: ((text: string) => void) | undefined
@@ -114,6 +117,22 @@ export class SessionInputShell implements SessionInput {
     this.imageIds = [...this.imageIds, ...ids]
     this.publish()
     return true
+  }
+
+  /** Attach one commented excerpt unless submission admission is locked. */
+  addAnnotation(annotation: ComposerAnnotation): boolean {
+    if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return false
+    this.annotations = [...this.annotations.filter(item => item.id !== annotation.id), annotation]
+    this.publish()
+    return true
+  }
+
+  /** Remove one pending excerpt. */
+  removeAnnotation(id: string): void {
+    const next = this.annotations.filter(annotation => annotation.id !== id)
+    if (next.length === this.annotations.length) return
+    this.annotations = next
+    this.publish()
   }
 
   /** Remove one image id from this draft. */
@@ -155,7 +174,18 @@ export class SessionInputShell implements SessionInput {
   commitSend(imageIds: readonly DraftAttachmentId[]): void {
     const submitted = new Set(imageIds)
     this.imageIds = this.imageIds.filter(id => !submitted.has(id))
+    this.annotations = []
     this.run(this.core.dispatch({ type: 'send-committed' }))
+  }
+
+  /**
+   * Restore excerpts after a failed ordinary-message send when no newer excerpts exist.
+   * @param annotations - Failed-attempt excerpts to restore.
+   */
+  restoreAnnotations(annotations: readonly ComposerAnnotation[]): void {
+    if (this.annotations.length !== 0) return
+    this.annotations = annotations
+    this.publish()
   }
 
   /** Undo the latest transaction (InputBar intercepts the platform chord). */
@@ -196,8 +226,8 @@ export class SessionInputShell implements SessionInput {
    * dismisses and the menu tracks frozen.
    */
   submit(mode: InputSubmitMode = 'queue'): void {
-    if (this.snapshot.draft.trim() === '' && this.imageIds.length > 0) {
-      if (this.snapshot.phase === 'plain') this.deps.defaultSink('', [...this.imageIds], mode)
+    if (this.snapshot.draft.trim() === '' && (this.imageIds.length > 0 || this.annotations.length > 0)) {
+      if (this.snapshot.phase === 'plain') this.deps.defaultSink(this.withAnnotations(''), [...this.imageIds], mode)
       return
     }
     this.run(this.core.dispatch({ type: 'enter', mode }))
@@ -417,7 +447,7 @@ export class SessionInputShell implements SessionInput {
     const imageIds = [...this.imageIds]
     const occurrences = this.core.state.occurrences
     if (occurrences.length === 0) {
-      this.deps.defaultSink(draft.trim(), imageIds, mode)
+      this.deps.defaultSink(this.withAnnotations(draft.trim()), imageIds, mode)
       return
     }
     const inputTriggers = this.deps.inputTriggers?.()
@@ -437,7 +467,7 @@ export class SessionInputShell implements SessionInput {
           cursor = part.offset + 1
         }
         out += draft.slice(cursor)
-        this.deps.defaultSink(out.trim(), imageIds, mode)
+        this.deps.defaultSink(this.withAnnotations(out.trim()), imageIds, mode)
       },
       (error: unknown) => {
         controller.abort()
@@ -446,6 +476,16 @@ export class SessionInputShell implements SessionInput {
         this.notify('error', message)
       },
     )
+  }
+
+  private withAnnotations(text: string): string {
+    if (this.annotations.length === 0) return text
+    const context = this.annotations.map((annotation, index) => [
+      `[选中文本 ${index + 1}]`,
+      annotation.quote,
+      ...(annotation.comment === '' ? [] : [`评论：${annotation.comment}`]),
+    ].join('\n')).join('\n\n')
+    return text === '' ? context : `${context}\n\n[问题]\n${text}`
   }
 
   /** Enter adjudication: poll the session controller; failure = notice + draft retained (never a silent downgrade). */
@@ -495,7 +535,12 @@ export class SessionInputShell implements SessionInput {
 
   private compose(): InputState {
     const core = this.core.state
-    return { ...core, imageIds: this.imageIds, queue: this.deps.queue?.getSnapshot() ?? EMPTY_QUEUE }
+    return {
+      ...core,
+      imageIds: this.imageIds,
+      annotations: this.annotations,
+      queue: this.deps.queue?.getSnapshot() ?? EMPTY_QUEUE,
+    }
   }
 
   private publish(): void {

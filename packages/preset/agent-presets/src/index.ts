@@ -89,6 +89,7 @@ export class AgentPresets extends Service {
       path: z.string().required(),
       trust: z.union(['system', 'user'] as const).default('user'),
     })).default([]),
+    moduleBaseUrl: z.string(),
     includeUserRoot: z.boolean().default(true),
   }) as z<Config>
 
@@ -521,7 +522,7 @@ export class AgentPresets extends Service {
         if (stamp === undefined) {
           throw new PresetMountError(preset.id, `composition file is unreadable: ${preset.path}`)
         }
-        await mountPreset(scope.ctx, preset)
+        await mountPreset(scope.ctx, preset, this.config.moduleBaseUrl)
         return { key, scope, stamp }
       } catch (error) {
         this.standing.delete(preset.id)

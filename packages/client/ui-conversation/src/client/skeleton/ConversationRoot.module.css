@@ -9,6 +9,7 @@
   height: 100%;
   min-width: 0;
   background: var(--dsw-alias-bg-base);
+  font-family: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
 
   /* Shared width axis for the whole column: one content width W
      (--dsh-chat-content-width) for the transcript, the dock cards
@@ -363,3 +364,14 @@
 .root[data-phase='settling'] .composerSeat {
   visibility: hidden;
 }
+.panelToggle {
+  border: 0;
+  border-radius: 8px;
+  padding: 5px 9px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.panelToggle:hover { background: var(--dsw-alias-interactive-bg-hover); }

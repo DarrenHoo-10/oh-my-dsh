@@ -154,11 +154,13 @@ export class InputHub implements SessionInputResolver {
   ): void {
     if (text === '' && imageIds.length === 0) return
     const shell = this.shells.get(session.sessionId)
+    const annotations = shell?.snapshot.annotations ?? []
     // Commit, not an editable clear: undo must not resurrect sent content.
     shell?.commitSend(imageIds)
     void this.conversation().sendSession(session, text, imageIds, mode).catch(() => {
       if (this.shells.get(session.sessionId) === shell) {
         shell?.restoreImages(imageIds)
+        shell?.restoreAnnotations(annotations)
         if (shell?.snapshot.draft === '') shell.setDraft(text)
         return
       }

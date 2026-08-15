@@ -36,6 +36,18 @@ export type BakedActions<T, A extends ActionsDecl<T>> = {
   [K in keyof A]: A[K] extends (draft: T, ...params: infer P) => void ? (...params: P) => void : never
 }
 
+/** Persistence declaration with a same-shape projection for retained state. */
+export interface StorePersistence<T> {
+  /** Base localStorage key; session-scoped instances append their scope key. */
+  name: string
+  /**
+   * Project decoded and live state before hydration and storage.
+   * @param state - Live or decoded store state.
+   * @returns State safe to retain across process lifetimes.
+   */
+  project: (state: T) => T
+}
+
 /**
  * Store declaration spec: initial-state factory (a lambda so every instance
  * gets a fresh state), optional persistence key (mechanical, framework-run),
@@ -43,7 +55,7 @@ export type BakedActions<T, A extends ActionsDecl<T>> = {
  */
 export interface StoreSpec<T, A extends ActionsDecl<T>> {
   init: () => T
-  persist?: string
+  persist?: string | StorePersistence<T>
   actions: A
 }
 

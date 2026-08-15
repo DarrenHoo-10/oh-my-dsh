@@ -6,6 +6,8 @@ Session persistence is a capability seam. The abstract `SessionPersistence` serv
 
 The persisted unit IS the existing `SessionEvent` (event-sourced model — the log is the single source of truth), so there is no parallel "persisted message" type. Metadata that is NOT replayable conversation state (format version, cwd, lineage, seed boundary, origin, delegation depth) travels separately as `SessionHeader`, owned by `dsh-session` and re-exported here.
 
+Sessions with `origin: 'sidechat'` are explicitly temporary and bypass coordinator registration, event write-behind, flush, retirement, and HMR adoption. Their Host owner must dispose them; no backend metadata or events are created, so they cannot reappear after closing or restart.
+
 ## Service API (`ctx.sessionPersistence`)
 
 | Method | Contract |

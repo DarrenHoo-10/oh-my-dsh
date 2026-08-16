@@ -445,6 +445,36 @@ describe('agent loop', () => {
       && message.source.plugin === '@deepseek-ai/dsh-system-prompt')).toBe(true)
   })
 
+  it('does not re-append a user message an admission listener already logged', async () => {
+    const adapter = new MockAdapter([textResponse('one')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a-pre-logged-message'), { provider: 'mock', model: 'mock' })
+    const original = createUserMessage({ content: [{ type: 'text', text: 'pre-logged' }], source: { kind: 'user' } })
+    agent.session.append('user/message', original, { surfaceOp: 'append' })
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'relayed description' }],
+      source: { kind: 'user' },
+    }), {
+      surfaceOp: { op: 'replace', start: agent.session.events.at(-1)!.seq, end: agent.session.events.at(-1)!.seq },
+      sourceEventSeqs: [agent.session.events.at(-1)!.seq],
+    })
+
+    send(agent, 'wake')
+    await waitForIdle(ctx, agent)
+
+    const logged = agent.session.events.filter(event =>
+      event.type === 'user/message' && event.surfaceOp === 'append')
+    // The pre-logged original entered exactly once (the loop skipped its
+    // duplicate); the waking message appended normally.
+    const loggedIds = logged.flatMap(event =>
+      event.type === 'user/message' && typeof event.data.id === 'string' ? [event.data.id] : [])
+    expect(loggedIds.filter(id => id === original.id)).toHaveLength(1)
+    expect(logged).toHaveLength(loggedIds.length)
+    // The model view carries the relayed description, not the original text.
+    expect(adapter.requests[0]?.messages.some(message =>
+      message.content.some(block => block.type === 'text' && block.text === 'relayed description'))).toBe(true)
+  })
+
   it('clears compacted runtime context after the active set becomes empty', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)

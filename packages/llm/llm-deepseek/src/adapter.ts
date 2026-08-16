@@ -14,6 +14,7 @@ import type {
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
+  ModelModality,
   ResolvedRetryPolicy,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
@@ -21,7 +22,7 @@ import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import { serializeRequest } from './serialize.ts'
-import type { RequestDefaults } from './serialize.ts'
+import type { RequestDefaults, WireImageResolver } from './serialize.ts'
 import { parseSse } from './sse.ts'
 import { translate } from './translate.ts'
 import type { WireError } from './types.ts'
@@ -34,6 +35,13 @@ export interface DeepSeekCatalogModel {
   name?: string
   /** Optional selector detail for deployments with similar model variants. */
   description?: string
+  /**
+   * Request modalities the configured endpoint carries for this model.
+   * Absent means text-only: under-claiming refuses the image before it is
+   * attached, while over-claiming would admit one the endpoint rejects
+   * mid-turn, after the message is durable.
+   */
+  input?: ModelModality[]
   /** Known combined request/response context capacity; omitted when deployment metadata is unavailable. */
   contextWindow?: number
   /** Per-request output cap for this model; omission falls back to the profile's {@link DeepSeekConnectionOptions.maxTokens}. */
@@ -83,6 +91,12 @@ export interface DeepSeekAdapterOptions {
   resolveApiKey: (connection: DeepSeekConnectionOptions) => Promise<string>
   /** Resolve the harness-home anonymous id shared with telemetry and feedback. */
   resolveUserId: () => AnonymousUserId
+  /**
+   * Read one durable image for a wire data URL. Absent when the attachment
+   * service is not mounted; image-bearing requests then refuse before the
+   * transport, exactly as an undeclared modality would.
+   */
+  resolveImageData?: WireImageResolver
 }
 
 /** Default maximum idle interval while an adapter stream read is outstanding. */
@@ -110,7 +124,10 @@ function modelInfo(provider: string, model: DeepSeekCatalogModel): LlmModelInfo 
     id: model.id,
     name: model.name ?? model.id,
     ...model.description === undefined ? {} : { description: model.description },
-    inputModalities: ['text'],
+    // Absent input means text-only, never unknown: the host admits images
+    // when modalities are missing, and this wire route carries none for an
+    // undeclared model.
+    inputModalities: model.input ?? ['text'],
   }
 }
 
@@ -231,6 +248,7 @@ export class DeepSeekAdapter extends LlmAdapter {
       connection,
       apiKey,
       userId,
+      this.config.resolveImageData,
       () => { watchdog.pulse() },
     )[Symbol.asyncIterator]()
     let exhausted = false
@@ -274,9 +292,11 @@ export class DeepSeekAdapter extends LlmAdapter {
     connection: DeepSeekConnectionOptions,
     apiKey: string,
     userId: AnonymousUserId,
+    resolveImageData: WireImageResolver | undefined,
     onComment: () => void,
   ): AsyncIterable<StreamChunk> {
-    const body = serializeRequest(options, connection.defaults)
+    const input = connection.models.find(model => model.id === options.model)?.input ?? ['text']
+    const body = await serializeRequest(options, connection.defaults, input, resolveImageData)
     // Prepared outside the try so the TRANSPORT label below covers exactly the
     // transport boundary, never a serialization failure.
     const payload = JSON.stringify(body)

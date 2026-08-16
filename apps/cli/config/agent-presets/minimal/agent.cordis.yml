@@ -60,3 +60,6 @@
       name: '@deepseek-ai/dsh-tool-str-replace-editor'
       config:
         maxOutputChars: 16000
+
+- id: tool-image-generation
+  name: '@deepseek-ai/dsh-tool-image-generation'

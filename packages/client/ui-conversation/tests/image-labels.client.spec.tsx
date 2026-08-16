@@ -58,6 +58,15 @@ describe('attachment rejection copy', () => {
     expect(attachmentErrorText(t, 'IMAGE_TOO_LARGE')).toBe('图片发送失败（IMAGE_TOO_LARGE），请重新添加图片后再试')
     expect(attachmentErrorText(t, 'IMAGES_TOO_LARGE')).toBe('图片发送失败（IMAGES_TOO_LARGE），请重新添加图片后再试')
   })
+
+  it('surfaces relay configuration failures with the underlying host message', () => {
+    expect(attachmentErrorText(t, 'VISION_MODEL_DOES_NOT_SUPPORT_IMAGES'))
+      .toBe('图片理解模型不支持图片，请在模型设置中更换配置')
+    expect(attachmentErrorText(t, 'IMAGE_TRANSCRIPTION_FAILED'))
+      .toBe('图片理解失败，请检查图片理解模型的凭据与配置后重试')
+    expect(attachmentErrorText(t, 'IMAGE_TRANSCRIPTION_FAILED', undefined, '401 invalid api key'))
+      .toBe('图片理解失败：401 invalid api key')
+  })
 })
 
 describe('assistant images through the label bridge', () => {

@@ -164,6 +164,8 @@
     { "path": "./packages/core/system-prompt" },
     { "path": "./packages/core/agent" },
     { "path": "./packages/core/agent-default-model" },
+    { "path": "./packages/core/agent-vision-model" },
+    { "path": "./packages/llm/tool-image-generation" },
     { "path": "./packages/interaction/commands" },
     { "path": "./packages/goal/goal" },
     { "path": "./packages/goal/tool-goal" },

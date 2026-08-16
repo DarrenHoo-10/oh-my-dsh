@@ -23,21 +23,30 @@ export function imageSizeText(bytes: number): string {
  * Product copy for a host attachment rejection (the `attachment-error`
  * `details.reason`). User-solvable reasons name the limit and the way out;
  * reasons the user cannot act on fold into one send-failed line carrying the
- * reason code for a bug report.
+ * reason code for a bug report. Relay failures carry the host message so the
+ * underlying cause (a refused credential, an unreachable vision endpoint) is
+ * not hidden behind a generic retry line.
  * @param t - the conversation-namespace translate.
  * @param reason - the wire `details.reason` code.
  * @param limits - projected limits interpolated into count/size copy, when known.
+ * @param message - the host rejection message, surfaced for relay failures.
  * @returns the banner text.
  */
 export function attachmentErrorText(
   t: Translate<ConversationKey>,
   reason: string,
   limits?: ImageAttachmentLimits,
+  message?: string,
 ): string {
   switch (reason) {
     case 'MODEL_DOES_NOT_SUPPORT_IMAGES': return t('image.modelUnsupported')
     case 'SUBAGENT_IMAGE_UNSUPPORTED': return t('image.subagentUnsupported')
     case 'IMAGE_TOO_MANY_PIXELS': return t('image.tooManyPixels')
+    case 'VISION_MODEL_DOES_NOT_SUPPORT_IMAGES': return t('image.visionModelUnsupported')
+    case 'IMAGE_TRANSCRIPTION_FAILED':
+      return message === undefined || message.length === 0
+        ? t('image.relayFailed')
+        : t('image.relayFailedDetail', { detail: message })
     // Undecodable bytes or a declared type its bytes contradict: solvable by
     // replacing or re-exporting the file, so it reads as a format problem.
     case 'INVALID_IMAGE':

@@ -61,6 +61,13 @@
   config:
     sampleOverCapGlobResults: false
 
+# ── image generation ───────────────────────────────────────────────────────
+
+# Routes generation through the configured image-understanding model and saves
+# the result into the workspace; refuses loudly when none is configured.
+- id: tool-image-generation
+  name: '@deepseek-ai/dsh-tool-image-generation'
+
 # ── background jobs ────────────────────────────────────────────────────────
 
 # Only the model-facing controls. The task REGISTRY stays on the host plane:

@@ -14,7 +14,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { assertUsableApiKey, LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
-import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
+import type { ModelModality, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -27,6 +27,7 @@ import {
   DeepSeekAdapter,
 } from './adapter.ts'
 import type { DeepSeekCatalogModel, DeepSeekConnectionOptions } from './adapter.ts'
+import type { WireImageResolver } from './serialize.ts'
 
 export {
   DEFAULT_CONTEXT_WINDOW,
@@ -35,7 +36,7 @@ export {
   DeepSeekAdapter,
 } from './adapter.ts'
 export type { DeepSeekAdapterOptions, DeepSeekCatalogModel, DeepSeekConnectionOptions } from './adapter.ts'
-export type { RequestDefaults } from './serialize.ts'
+export type { RequestDefaults, WireImageResolver } from './serialize.ts'
 export type * from './types.ts'
 
 export const name = 'llm-deepseek'
@@ -45,6 +46,8 @@ const NS = settingsNamespace('llm-deepseek')
 const DEFAULT_API_KEY_ENV = 'DEEPSEEK_API_KEY'
 /** The single provider route this plugin owns. */
 const PROVIDER = 'deepseek-official'
+/** Declarable catalog modalities, in stable order. */
+const MODALITIES = ['text', 'image'] as const satisfies readonly ModelModality[]
 
 const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
   { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: DEFAULT_CONTEXT_WINDOW },
@@ -84,6 +87,7 @@ const catalogModel: z<DeepSeekCatalogModel> = z.object({
   id: z.string().required(),
   name: z.string(),
   description: z.string(),
+  input: z.array(z.union(MODALITIES)),
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
 })
@@ -122,6 +126,13 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
     if (model.name !== undefined && model.name.length === 0) {
       throw new Error(`llm-deepseek: catalog model "${model.id}" has an empty name`)
     }
+    // Schemastery materializes an absent array as [], which reads as "no
+    // declaration": the model stays text-only rather than failing the boot.
+    if (model.input !== undefined && model.input.length > 0) {
+      if (!model.input.includes('text')) {
+        throw new Error(`llm-deepseek: catalog model "${model.id}" input must include "text"`)
+      }
+    }
     if (model.contextWindow !== undefined
       && (!Number.isInteger(model.contextWindow) || model.contextWindow <= 0)) {
       throw new Error(
@@ -140,6 +151,7 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
       id: model.id,
       ...model.name === undefined ? {} : { name: model.name },
       ...model.description === undefined ? {} : { description: model.description },
+      ...model.input === undefined || model.input.length === 0 ? {} : { input: [...model.input] },
       ...model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow },
       ...model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens },
     }
@@ -247,7 +259,19 @@ export function apply(ctx: Context, config: Config): void {
 
   let userId: AnonymousUserId | undefined
   const resolveUserId = (): AnonymousUserId => userId ??= getOrCreateAnonymousUserId()
-  const adapter = new DeepSeekAdapter({ options, resolveApiKey, resolveUserId })
+  const attachments = ctx.get('attachments')
+  const resolveImageData: WireImageResolver | undefined = attachments === undefined
+    ? undefined
+    : async (ref) => {
+      const stored = await attachments.readImage(ref)
+      return { data: stored.data, mediaType: stored.ref.mediaType }
+    }
+  const adapter = new DeepSeekAdapter({
+    options,
+    resolveApiKey,
+    resolveUserId,
+    ...resolveImageData === undefined ? {} : { resolveImageData },
+  })
   ctx.llm.registerConfigurableProviders([
     { provider: PROVIDER, displayName: 'DeepSeek', settingsNs: NS, settingsPath: [] },
   ])

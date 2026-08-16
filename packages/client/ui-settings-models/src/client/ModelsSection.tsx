@@ -21,6 +21,7 @@ import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, messageOf, protocolChoices, providerUsable } from './store.ts'
 import type { ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
+import { VisionModelSelector } from './VisionModelSelector.tsx'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -276,6 +277,12 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
       <h2 className={styles['title']}>{t('title')}</h2>
       <p className={styles['intro']}>{t('intro')}</p>
       {!state.writable && state.status === 'ready' ? <p className={styles['notice']}>{t('readOnly')}</p> : null}
+      <VisionModelSelector
+        api={api}
+        namespace={state.namespaces.get('agent-vision-model')}
+        writable={state.writable}
+        t={t}
+      />
       {savedIdentity === undefined
         ? null
         : (

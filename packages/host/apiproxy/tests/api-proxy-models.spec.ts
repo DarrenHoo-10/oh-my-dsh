@@ -497,4 +497,129 @@ describe('Web session model selection', () => {
       .not.toContain('deleted-gateway/deleted-model')
     await ctx.fiber.dispose()
   })
+
+  it('relays image prompts through the configured image-understanding model when the routed model is text-only', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    registerTextOnly(ctx)
+    ctx.llm.registerAdapter(['vision'], new class extends CatalogAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text', 'image'] })
+      }
+
+      override async *stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text: 'A red circle' }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      }
+    }('Vision', []))
+    ctx.provide('agentVisionModel', {
+      currentSelection: () => ({ provider: 'vision', model: 'vl-1', maxOutputTokens: 512, timeoutMs: 30_000 }),
+    } as never)
+    ctx.provide('attachments', {
+      imageLimits: {
+        maxImageBytes: 4,
+        maxImagesPerMessage: 2,
+        maxMessageImageBytes: 4,
+        maxImagePixels: 4,
+        mediaTypes: ['image/png'],
+      },
+      validateImage: () => Promise.resolve(),
+      saveImage: () => Promise.resolve({
+        attachmentId: 'att-relay', mediaType: 'image/png' as const, bytes: 1, width: 1, height: 1,
+      }),
+    } as never)
+    const followup = vi.fn()
+    Object.assign(agent, { followup })
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'text-only', model: 'plain' }),
+      cwd: '/tmp',
+    })
+
+    const result = await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [
+        { type: 'text' as const, text: 'what is this' },
+        { type: 'image' as const, mediaType: 'image/png' as const, data: 'AQ==' },
+      ],
+    }))
+    expect(result.result).toMatchObject({ ok: true })
+    // The followup message is the user's own: image and all. The surface
+    // transcript keeps it; the model view sees the relayed description.
+    expect((followup.mock.calls[0]?.[0] as UserMessage).content).toEqual([
+      { type: 'text', text: 'what is this' },
+      { type: 'image', attachment: { attachmentId: 'att-relay', mediaType: 'image/png', bytes: 1, width: 1, height: 1 } },
+    ])
+    const surface = agent.session.events.filter(event => event.type === 'user/message')
+    const originalSeq = surface[0]?.seq as number
+    expect(surface.map(event => event.surfaceOp)).toEqual([
+      'append',
+      { op: 'replace', start: originalSeq, end: originalSeq },
+    ])
+    expect(surface[1]?.sourceEventSeqs).toEqual([originalSeq])
+    const derived = agent.session.deriveMessages()
+    expect(derived.map(message => message.content)).toEqual([
+      [{ type: 'text', text: 'what is this' }, { type: 'text', text: '【图片已由视觉模型理解】A red circle' }],
+    ])
+    // The relay request is reconstructable from the session log.
+    expect(agent.session.events.some(event => event.type === 'session/vision-transcription')).toBe(true)
+    await ctx.fiber.dispose()
+  })
+
+  it('refuses an image prompt when no image-understanding model is configured', async () => {
+    const { ctx, sessionId } = await harness()
+    registerTextOnly(ctx)
+    ctx.provide('attachments', {
+      imageLimits: {
+        maxImageBytes: 4,
+        maxImagesPerMessage: 2,
+        maxMessageImageBytes: 4,
+        maxImagePixels: 4,
+        mediaTypes: ['image/png'],
+      },
+      validateImage: () => Promise.resolve(),
+      saveImage: () => Promise.resolve({
+        attachmentId: 'att-refused', mediaType: 'image/png' as const, bytes: 1, width: 1, height: 1,
+      }),
+    } as never)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'text-only', model: 'plain' }),
+      cwd: '/tmp',
+    })
+
+    const result = await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'image' as const, mediaType: 'image/png' as const, data: 'AQ==' }],
+    }))
+    expect(result.result).toMatchObject({
+      ok: false,
+      error: { code: 'attachment-error', details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' } },
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('allows switching to a text-only model when a relay is configured', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    registerTextOnly(ctx)
+    ctx.provide('agentVisionModel', {
+      currentSelection: () => ({ provider: 'vision', model: 'vl-1', maxOutputTokens: 512, timeoutMs: 30_000 }),
+    } as never)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+    const image = {
+      type: 'image' as const,
+      attachment: { attachmentId: 'att-history', mediaType: 'image/png' as const, bytes: 1, width: 1, height: 1 },
+    }
+    agent.session.append('user/message', {
+      id: 'image-message', role: 'user', source: { kind: 'user' }, content: [image],
+    } as never, { surfaceOp: 'append' })
+
+    expect(expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'text-only', model: 'plain',
+    }))).selected).toEqual({ provider: 'text-only', model: 'plain' })
+    await ctx.fiber.dispose()
+  })
 })

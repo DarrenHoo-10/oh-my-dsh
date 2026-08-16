@@ -44,6 +44,12 @@ function numberOf(model: ModelDraft, key: string): number | undefined {
   return typeof value === 'number' ? value : undefined
 }
 
+/** Whether a row declares image input (any `input` array containing `image`). */
+function inputIncludesImage(model: ModelDraft): boolean {
+  const value = model['input']
+  return Array.isArray(value) && value.includes('image')
+}
+
 /** What an interrogation needs, taken from the live form. */
 export interface ProbeTarget {
   /** Settings namespace whose adapter family answers. */
@@ -210,7 +216,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     })
   }
 
-  const patch = (index: number, next: Record<string, string | number | undefined>): void => {
+  const patch = (index: number, next: Record<string, string | number | string[] | undefined>): void => {
     onChange(models.map((model, at) => {
       if (at !== index) return model
       // Rebuilt rather than spread over: an emptied optional field has to leave
@@ -416,6 +422,20 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                     disabled={disabled}
                     onChange={(event) => { editCapacity(index, 'maxTokens', event.target.value) }}
                   />
+                </label>
+                <label className={styles['checkboxRow']}>
+                  <input
+                    type="checkbox"
+                    checked={inputIncludesImage(model)}
+                    aria-label={`${t('modelSupportsImage')} ${index + 1}`}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      // Unchecking removes the field so the provider's own
+                      // default (text-only) applies instead of a stored value.
+                      patch(index, { input: event.target.checked ? ['text', 'image'] : undefined })
+                    }}
+                  />
+                  <span>{t('modelSupportsImage')}</span>
                 </label>
               </div>
             )

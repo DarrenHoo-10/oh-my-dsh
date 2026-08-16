@@ -663,6 +663,17 @@ Types: [SessionTitleLlmRequestEventData](subsystems/session-title.md)
 
 Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/session/session-title-llm/src/index.ts)
 
+<a id="sessionvision-transcription--log-only"></a>
+
+#### `session/vision-transcription` — log-only
+
+```ts persistence-catalog
+/** Log-only pre-dispatch record of one image-to-text relay request. */
+'session/vision-transcription': VisionTranscriptionEventData
+```
+
+Source: [`packages/core/agent-vision-model/src/index.ts:180`](../packages/core/agent-vision-model/src/index.ts)
+
 ### `step/*`
 
 <a id="stepend--log-only"></a>

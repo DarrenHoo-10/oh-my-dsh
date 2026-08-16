@@ -17,7 +17,7 @@ import styles from './ModelsSection.module.css'
 export type DeepSeekModelDraft = Record<string, unknown>
 
 /** The catalog fields this editor writes. */
-type CatalogField = 'id' | 'name' | 'contextWindow' | 'maxTokens'
+type CatalogField = 'id' | 'name' | 'contextWindow' | 'maxTokens' | 'input'
 
 /** The two token counts edited as K/M-suffixed text behind a row's disclosure. */
 type CapacityField = 'contextWindow' | 'maxTokens'
@@ -172,6 +172,12 @@ export function DeepSeekModelsEditor(props: DeepSeekModelsEditorProps): ReactNod
       return copy
     })
     props.onChange(next)
+  }
+
+  /** Whether a row declares image input (any `input` array containing `image`). */
+  const inputIncludesImage = (model: DeepSeekModelDraft): boolean => {
+    const value = model['input']
+    return Array.isArray(value) && value.includes('image')
   }
 
   const remove = (index: number): void => {
@@ -343,6 +349,18 @@ export function DeepSeekModelsEditor(props: DeepSeekModelsEditorProps): ReactNod
                     <div className={styles['modelAdvanced']}>
                       {capacityField(model, index, 'contextWindow', props.defaultContextWindow)}
                       {capacityField(model, index, 'maxTokens', props.defaultMaxTokens)}
+                      <label className={styles['checkboxRow']}>
+                        <input
+                          type="checkbox"
+                          checked={inputIncludesImage(model)}
+                          aria-label={`${props.t('modelSupportsImage')} ${String(index + 1)}`}
+                          disabled={props.disabled}
+                          onChange={(event) => {
+                            update(index, 'input', event.target.checked ? ['text', 'image'] : undefined)
+                          }}
+                        />
+                        <span>{props.t('modelSupportsImage')}</span>
+                      </label>
                     </div>
                   )
                   : null}

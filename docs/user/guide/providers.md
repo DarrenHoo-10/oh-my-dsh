@@ -32,7 +32,7 @@ Under **Model catalog**, choose **Fetch available models** to query the base URL
 
 A model you enter by hand is treated as text-only until it says otherwise, because nothing can ask an endpoint which modalities it accepts. Attaching an image to such a model is refused before it is sent, naming the model.
 
-A vision model on a custom provider therefore needs one line. The form has no field for it; add `input` to the model in `$DSH_HOME/settings.yaml`:
+A vision model on a custom provider declares image input with the **Image input** checkbox under the model's capacities, or with one line in `$DSH_HOME/settings.yaml`:
 
 ```yaml
 llm-pi-ai:
@@ -79,6 +79,12 @@ Every list must name at least one modality except a model's own, where an empty 
 
 Both fields state a claim about your endpoint rather than checking it. A model that declares images its endpoint does not serve is not caught here; the provider rejects the request instead.
 
+The DeepSeek provider's catalog models are text-only by default; a custom model on that route can declare image input the same way, through the **Image input** checkbox on its row or `input` in the `llm-deepseek` settings section.
+
+### Image-understanding model
+
+An image sent to a model without image input is refused unless an **Image-understanding model** is configured on the Models page. When one is, the host asks that model to describe the image, then sends the routed model a text description prefixed with `【图片已由视觉模型理解】` instead of the image. The chat keeps the user's own image and question; the relayed description is model-only and visible in the session trajectory. The relay call is logged in the session; a relay failure refuses the prompt.
+
 ## Select a model
 
 Configured providers appear in the model picker. Selecting a model also makes it the default for new sessions. A session that has already sent a request retains the model recorded in its own log.
@@ -90,7 +96,7 @@ If a saved default names a provider that was deleted, the composer displays **Se
 - **`MISSING_CREDENTIAL`** — Store the provider key through the Models page or supply the referenced environment variable.
 - **`UNKNOWN_MODEL`** — Select a configured model or add the missing model to the custom provider.
 - **Fetching available models returns 401** — Check the key. Model discovery calls the OpenAI-compatible `GET /models` endpoint; enter models manually for endpoints that do not provide it.
-- **An image is refused before sending** — The model declares no image modality. Give a custom provider's model `input: [text, image]`; DeepSeek's own chat-completions route is text-only and cannot be configured otherwise.
+- **An image is refused before sending** — The model declares no image modality. Give the model `input: [text, image]` (or tick **Image input** on its row), or configure an **Image-understanding model** on the Models page so the image is relayed to text instead of refused.
 - **The provider rejects a request carrying an image** — The model declares images its endpoint does not actually serve. Remove `image` from whichever list granted it — the model's `input`, or the route's `defaultInput` — then start a new session: the attached image stays in the session log, so the same request repeats until the session moves off it.
 
 ## Advanced configuration

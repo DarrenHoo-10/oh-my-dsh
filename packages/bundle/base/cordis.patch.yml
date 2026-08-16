@@ -66,6 +66,12 @@
         provider: deepseek-official
         model: deepseek-v4-flash
 
+    # The optional image-understanding route the host image relay consults when
+    # the routed model cannot accept images. Unconfigured keeps the pre-relay
+    # refusal behavior.
+    - id: agent-vision-model
+      name: '@deepseek-ai/dsh-agent-vision-model'
+
     - id: jobs
       name: '@deepseek-ai/dsh-jobs-local'
 

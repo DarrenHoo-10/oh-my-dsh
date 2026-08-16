@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from '@deepseek-ai/schemastery'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   ModelsSection, needsSetup, providerCopy, providerTargetLabel, removeProviderProfile,
 } from '../src/client/ModelsSection.tsx'
@@ -16,6 +17,7 @@ import {
 import { apiKeyFailure } from '../src/client/apiKey.ts'
 import { deriveKeyRef, ModelsSettingsStore } from '../src/client/store.ts'
 import type { ProviderRow } from '../src/client/store.ts'
+import { VisionModelSelector } from '../src/client/VisionModelSelector.tsx'
 import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -1381,5 +1383,105 @@ describe('apiKeyFailure', () => {
     // heuristic leaves them alone rather than guessing at a paste error.
     expect(apiKeyFailure('"')).toBeUndefined()
     expect(apiKeyFailure('"a')).toBeUndefined()
+  })
+})
+
+describe('VisionModelSelector', () => {
+  /** A scripted wire face: a catalog with one image-capable and one text-only model. */
+  function visionFace(overrides: {
+    namespace?: SettingsNamespaceView
+    replace?: ReturnType<typeof vi.fn>
+    writable?: boolean
+  } = {}) {
+    const replace = overrides.replace ?? vi.fn(() => Promise.resolve(ok({})))
+    const face = {
+      llm: {
+        models: vi.fn(() => Promise.resolve(ok({
+          groups: [
+            {
+              id: 'vision', name: 'Vision',
+              models: [
+                { id: 'vl-1', name: 'VL 1', inputModalities: ['text', 'image'] },
+                { id: 'vl-unknown', name: 'VL Unknown' },
+                { id: 'plain', name: 'Plain', inputModalities: ['text'] },
+              ],
+            },
+            {
+              id: 'text-only', name: 'Text Only',
+              models: [{ id: 't-1', name: 'T 1', inputModalities: ['text'] }],
+            },
+          ],
+          failures: [],
+        }))),
+      },
+      settings: { replace },
+    } as unknown as Pick<IApiClient, 'llm' | 'settings'>
+    const namespace: SettingsNamespaceView = overrides.namespace ?? {
+      ns: 'agent-vision-model',
+      schema: {},
+      value: undefined,
+      applies: 'live',
+      secrets: [],
+      revision: 0,
+    }
+    const writable = overrides.writable ?? true
+    return { face, replace, namespace, writable }
+  }
+
+  it('lists only image-capable models across providers', async () => {
+    const { face, namespace, writable } = visionFace()
+    render(<VisionModelSelector api={face} namespace={namespace} writable={writable} t={t} />)
+    await waitFor(() => {
+      expect(screen.getByLabelText(en.visionProvider).children).toHaveLength(1)
+    })
+    const provider = screen.getByLabelText(en.visionProvider) as HTMLSelectElement
+    expect([...provider.options].map(option => option.value)).toEqual(['vision'])
+    const model = screen.getByLabelText(en.visionModel) as HTMLSelectElement
+    expect([...model.options].map(option => option.value)).toEqual(['vl-1', 'vl-unknown'])
+  })
+
+  it('writes the selection through settings.replace, preserving policy fields', async () => {
+    const { face, replace, namespace, writable } = visionFace({
+      namespace: {
+        ns: 'agent-vision-model',
+        schema: {},
+        value: { provider: 'vision', model: 'vl-1', maxOutputTokens: 512, timeoutMs: 10_000 },
+        applies: 'live',
+        secrets: [],
+        revision: 0,
+      },
+    })
+    render(<VisionModelSelector api={face} namespace={namespace} writable={writable} t={t} />)
+    await waitFor(() => {
+      expect(screen.getByLabelText(en.visionModel).children).toHaveLength(2)
+    })
+    fireEvent.change(screen.getByLabelText(en.visionModel), { target: { value: 'vl-unknown' } })
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith({
+        ns: 'agent-vision-model',
+        section: { provider: 'vision', model: 'vl-unknown', maxOutputTokens: 512, timeoutMs: 10_000 },
+      })
+    })
+  })
+
+  it('clears the selection back to unconfigured', async () => {
+    const { face, replace, namespace, writable } = visionFace({
+      namespace: {
+        ns: 'agent-vision-model',
+        schema: {},
+        value: { provider: 'vision', model: 'vl-1' },
+        applies: 'live',
+        secrets: [],
+        revision: 0,
+      },
+    })
+    render(<VisionModelSelector api={face} namespace={namespace} writable={writable} t={t} />)
+    await waitFor(() => {
+      expect(screen.getByText(en.visionClear)).toBeTruthy()
+    })
+    fireEvent.click(screen.getByText(en.visionClear))
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith({ ns: 'agent-vision-model', section: {} })
+    })
   })
 })

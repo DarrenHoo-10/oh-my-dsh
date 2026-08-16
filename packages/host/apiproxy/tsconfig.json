@@ -42,6 +42,12 @@
       "path": "../../core/agent-default-model"
     },
     {
+      "path": "../../core/agent-vision-model"
+    },
+    {
+      "path": "../../util/timeout"
+    },
+    {
       "path": "../../preset/agent-presets"
     },
     {

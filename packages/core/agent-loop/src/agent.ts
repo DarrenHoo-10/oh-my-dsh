@@ -279,7 +279,18 @@ export class ReactLoopAgent implements Agent {
         this.session.append('step/start', { turn, step })
         phase.step = step
         try {
+          // A message an admission listener already logged (its original plus
+          // a model-only replacement, e.g. an image relay) must not enter the
+          // log twice: one message id has exactly one home in the session.
+          const loggedIds = new Set<string>()
+          for (const event of this.session.events) {
+            if (event.type !== 'user/message') continue
+            const id = (event.data as { id?: unknown }).id
+            if (typeof id === 'string') loggedIds.add(id)
+          }
           for (const message of decision.messages) {
+            if (loggedIds.has(message.id)) continue
+            loggedIds.add(message.id)
             this.session.append('user/message', message, { surfaceOp: 'append' })
           }
           // max-tokens is sticky: once any step hits the ceiling, later steps

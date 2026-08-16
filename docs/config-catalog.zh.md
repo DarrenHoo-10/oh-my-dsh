@@ -322,6 +322,26 @@ export interface Config {
 
 来源：[`packages/core/agent-tool-presentation/src/index.ts:38`](../packages/core/agent-tool-presentation/src/index.ts)
 
+<a id="deepseek-aidsh-agent-vision-model"></a>
+
+## `@deepseek-ai/dsh-agent-vision-model`
+
+```ts config-catalog
+/** Composition entry for the default image-understanding model selection. */
+export interface Config {
+  /** Registered provider route; paired with {@link model} or both absent. */
+  provider?: string
+  /** Provider-owned model id; paired with {@link provider} or both absent. */
+  model?: string
+  /** Relay output-token cap (default 1024). */
+  maxOutputTokens?: number
+  /** End-to-end relay deadline in milliseconds (default 30,000). */
+  timeoutMs?: number
+}
+```
+
+来源：[`packages/core/agent-vision-model/src/index.ts:50`](../packages/core/agent-vision-model/src/index.ts)
+
 <a id="deepseek-aidsh-attachment-local"></a>
 
 ## `@deepseek-ai/dsh-attachment-local`
@@ -882,6 +902,13 @@ export interface DeepSeekCatalogModel {
   name?: string
   /** Optional selector detail for deployments with similar model variants. */
   description?: string
+  /**
+   * Request modalities the configured endpoint carries for this model.
+   * Absent means text-only: under-claiming refuses the image before it is
+   * attached, while over-claiming would admit one the endpoint rejects
+   * mid-turn, after the message is durable.
+   */
+  input?: ModelModality[]
   /** Known combined request/response context capacity; omitted when deployment metadata is unavailable. */
   contextWindow?: number
   /** Per-request output cap for this model; omission falls back to the profile's {@link DeepSeekConnectionOptions.maxTokens}. */
@@ -889,9 +916,9 @@ export interface DeepSeekCatalogModel {
 }
 ```
 
-依赖：[`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
+依赖：[`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-来源：[`packages/llm/llm-deepseek/src/index.ts:62`](../packages/llm/llm-deepseek/src/index.ts)
+来源：[`packages/llm/llm-deepseek/src/index.ts:65`](../packages/llm/llm-deepseek/src/index.ts)
 
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 

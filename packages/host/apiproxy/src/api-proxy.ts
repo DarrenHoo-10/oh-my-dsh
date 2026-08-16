@@ -10,11 +10,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
+import { AGENT_VISION_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-vision-model'
+import type {} from '@deepseek-ai/dsh-agent-vision-model'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import { errorChain } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, contentHasImage, createUserMessage, deepFreeze, errorChain, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FinishReason, GenerateOptions, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import { deadline } from '@deepseek-ai/dsh-timeout'
 import { isAppendSurfaceEvent, isJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue, Session, SessionEvent, SessionEventMap, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
@@ -187,6 +189,128 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
   return blocks
 }
 
+/** Model-visible relay instruction, pinned verbatim: every relay turn sends this exact text. */
+const IMAGE_RELAY_SYSTEM_PROMPT = [
+  'You are the image-understanding relay of a coding agent.',
+  'Describe every image in the user message in detail: subject, visible text, layout, and anything a coding task could rely on.',
+  'Return only the description text, in the language of the user message.',
+  'Do not repeat the user text and do not add commentary.',
+].join('\n')
+
+/** Prefix marking a relayed image description inside the routed user message. */
+const IMAGE_RELAY_DESCRIPTION_PREFIX = '【图片已由视觉模型理解】'
+/** Capability-owned timeout reason code for one image-to-text relay call. */
+const IMAGE_RELAY_TIMEOUT_CODE = 'IMAGE_RELAY_TIMEOUT'
+
+/** Translate terminal relay finish reasons into a relay failure. */
+function relayFinishError(finish: FinishReason): Error | undefined {
+  switch (finish.kind) {
+    case 'stop':
+      return undefined
+    case 'error':
+    case 'aborted': {
+      const error = new Error(finish.failure.message) as Error & { code?: string }
+      error.code = finish.failure.code
+      return error
+    }
+    case 'max-tokens':
+      return new Error('image understanding output reached maxOutputTokens')
+    case 'tool-calls':
+      return new Error('image-understanding model unexpectedly requested a tool')
+    default:
+      return new Error(`unsupported relay finish reason "${String((finish as { kind?: unknown }).kind)}"`)
+  }
+}
+
+/**
+ * Route image-bearing prompt content through the configured image-understanding
+ * model when the routed conversation model cannot take images. The durable
+ * images are passed to the relay exactly as saved; the returned blocks replace
+ * every image with one description text block the conversation model then sees.
+ * @param ctx - host context exposing the LLM and vision-model services.
+ * @param agent - the session agent whose log records the relay request.
+ * @param durable - validated durable content blocks (images already saved).
+ * @returns the relayed text-only blocks.
+ * @throws {AttachmentError} when no relay is configured, the relay route cannot
+ * take images, or the relay call itself fails.
+ */
+async function relayImagesToText(
+  ctx: Context,
+  agent: Agent,
+  durable: readonly ContentBlock[],
+): Promise<ContentBlock[]> {
+  const vision = ctx.get('agentVisionModel')?.currentSelection()
+  if (vision === undefined) {
+    throw new AttachmentError(
+      'Model does not support image input; configure an image-understanding model to relay images to text.',
+      'MODEL_DOES_NOT_SUPPORT_IMAGES',
+    )
+  }
+  const visionInfo = await ctx.llm.resolveModelInfo(vision.provider, vision.model)
+  if (visionInfo.inputModalities !== undefined && !visionInfo.inputModalities.includes('image')) {
+    throw new AttachmentError(
+      `Configured image-understanding model "${vision.model}" does not accept image input.`,
+      'VISION_MODEL_DOES_NOT_SUPPORT_IMAGES',
+    )
+  }
+  const messages: Message[] = [createUserMessage({
+    content: [...durable],
+    source: { kind: 'plugin', plugin: 'dsh-host-apiproxy' },
+  })]
+  const system = IMAGE_RELAY_SYSTEM_PROMPT
+  using callDeadline = deadline(new AbortController().signal, vision.timeoutMs, IMAGE_RELAY_TIMEOUT_CODE)
+  const options: GenerateOptions = deepFreeze({
+    provider: vision.provider,
+    model: vision.model,
+    messages,
+    system,
+    maxTokens: vision.maxOutputTokens,
+    sessionId: agent.session.id,
+    purpose: 'image-to-text',
+    signal: callDeadline.signal,
+  })
+  agent.session.append('session/vision-transcription', {
+    route: { provider: vision.provider, model: vision.model },
+    system,
+    messages,
+    maxTokens: vision.maxOutputTokens,
+  })
+  callDeadline.signal.throwIfAborted()
+  const assembler = new BlockAssembler()
+  try {
+    for await (const chunk of ctx.llm.stream(options)) {
+      callDeadline.signal.throwIfAborted()
+      assembler.push(chunk)
+    }
+  } catch (error) {
+    throw new AttachmentError(
+      `Image understanding failed: ${error instanceof Error ? error.message : String(error)}`,
+      'IMAGE_TRANSCRIPTION_FAILED',
+    )
+  }
+  callDeadline.signal.throwIfAborted()
+  const terminalError = relayFinishError(assembler.finish)
+  if (terminalError !== undefined) {
+    throw new AttachmentError(terminalError.message, 'IMAGE_TRANSCRIPTION_FAILED')
+  }
+  const blocks = assembler.blocks()
+  if (blocks.some(block => block.type === 'tool-call')) {
+    throw new AttachmentError('Image understanding produced unexpected tool calls.', 'IMAGE_TRANSCRIPTION_FAILED')
+  }
+  const description = blocks
+    .filter((block): block is Extract<(typeof blocks)[number], { type: 'text' }> => block.type === 'text')
+    .map(block => block.text)
+    .join(' ')
+    .trim()
+  if (description.length === 0) {
+    throw new AttachmentError('Image understanding produced no text.', 'IMAGE_TRANSCRIPTION_FAILED')
+  }
+  return [
+    ...durable.filter(block => block.type === 'text'),
+    { type: 'text', text: `${IMAGE_RELAY_DESCRIPTION_PREFIX}${description}` },
+  ]
+}
+
 /** Search durable content for an image reference, including nested tool results. */
 function imageBlockIn(content: unknown, match: (ref: ImageAttachmentRef) => boolean): ImageAttachmentRef | undefined {
   if (!Array.isArray(content)) return undefined
@@ -251,9 +375,15 @@ function referencedImage(events: readonly SessionEvent[], attachmentId: string):
  * The agent-preset namespace carries one field — which preset a session with
  * no explicit choice is composed from — and both browser surfaces that offer
  * that choice write it through `settings.update`, so it has to cross the
- * configuration boundary or the pickers silently fail to persist.
+ * configuration boundary or the pickers silently fail to persist. The
+ * image-understanding namespace carries the relay route the Models page
+ * selects, for the same reason.
  */
-const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding', AGENT_PRESET_SETTINGS_NAMESPACE])
+const PRODUCT_SETTINGS_NAMESPACES = new Set([
+  'ui-onboarding',
+  AGENT_PRESET_SETTINGS_NAMESPACE,
+  AGENT_VISION_MODEL_SETTINGS_NAMESPACE,
+])
 
 /** Strict browser-zone profile: UTC or an IANA Area/Location-style identifier. */
 const IANA_TIME_ZONE = /^[A-Za-z][A-Za-z0-9_+.-]*(?:\/[A-Za-z0-9_+.-]+)+$/
@@ -352,6 +482,9 @@ async function buildModelCatalog(ctx: Context): Promise<{
           id: model.id,
           name: model.name,
           ...model.description === undefined ? {} : { description: model.description },
+          ...resolved.inputModalities === undefined
+            ? {}
+            : { inputModalities: resolved.inputModalities },
           ...reasoning === undefined ? {} : { reasoning },
         }
       }))
@@ -2303,11 +2436,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             if (pendingImage || messagesHaveImage(found.agent.session.deriveMessages())) {
               const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model)
               if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
-                return err(request, {
-                  code: 'model-unavailable',
-                  message: `Model "${resolved.model}" does not accept image input, but this session already contains images; select an image-capable model.`,
-                  details: { provider, model },
-                })
+                // A configured image-understanding relay can carry the session's
+                // existing images on later prompts, so the switch is allowed.
+                const relay = ctx.get('agentVisionModel')?.currentSelection()
+                if (relay === undefined) {
+                  return err(request, {
+                    code: 'model-unavailable',
+                    message: `Model "${resolved.model}" does not accept image input, but this session already contains images; select an image-capable model.`,
+                    details: { provider, model },
+                  })
+                }
               }
             }
             const selected: ModelSelection = {
@@ -2515,19 +2653,28 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const hasImage = content.some(part => part.type === 'image')
         const admit = async (): Promise<RpcResponse<{ accepted: true }>> => {
           try {
+            const durable = await durablePromptContent(ctx, content)
+            const message: UserMessage = createUserMessage({ content: durable, source })
+            // The user's message enters the surface before the relay runs, so
+            // it renders immediately; the relayed description shadows it for
+            // the model only once available, and the turn waits for followup.
+            let originalSeq: number | undefined
+            let needsRelay = false
             if (hasImage) {
               const current = selectionFor(agent).current
               const modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model)
               if (modelInfo.inputModalities !== undefined && !modelInfo.inputModalities.includes('image')) {
-                return err(request, {
-                  code: 'attachment-error',
-                  message: `Model "${current.model}" does not support image input.`,
-                  details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
-                })
+                needsRelay = true
+                originalSeq = agent.session.append('user/message', message, { surfaceOp: 'append' }).seq
               }
             }
-            const durable = await durablePromptContent(ctx, content)
-            const message: UserMessage = createUserMessage({ content: durable, source })
+            if (needsRelay && originalSeq !== undefined) {
+              const relayed = await relayImagesToText(ctx, agent, durable)
+              agent.session.append('user/message', createUserMessage({ content: relayed, source }), {
+                surfaceOp: { op: 'replace', start: originalSeq, end: originalSeq },
+                sourceEventSeqs: [originalSeq],
+              })
+            }
             if (mode === 'steer') agent.steer(message)
             else agent.followup(message)
           } catch (error: unknown) {

@@ -35,10 +35,18 @@ export interface WireSystemMessage {
   content: string
 }
 
-/** User-role message: a single string of user input. */
+/** One OpenAI-compatible user content part; images serialize as data URLs. */
+export type WireUserContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
+/** User-role message content: plain text, or the content-array form when images ride along. */
+export type WireUserContent = string | WireUserContentPart[]
+
+/** User-role message: a single string of user input, or a content part array with images. */
 export interface WireUserMessage {
   role: 'user'
-  content: string
+  content: WireUserContent
 }
 
 /** Tool-role message: the result of one tool call, keyed by its call id. */

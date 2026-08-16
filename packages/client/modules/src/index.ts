@@ -203,25 +203,30 @@ export class ClientModuleRegistry extends Service {
    */
   constructor(ctx: Context) {
     super(ctx, 'clientModules')
-    // Prefer the config tree's baseUrl, whose package declares out-of-tree
-    // plugins. Packaged Electron profiles use junctions into app.asar that
-    // CommonJS resolution cannot traverse, so in-box packages fall back to
-    // the modules package's installation anchor inside the same app.asar.
+    // The running installation owns in-box packages: resolve them from this
+    // modules package's own anchor first, matching the bundle contract that an
+    // in-box package always comes from the same installation as the running dsh,
+    // never from a profile-local copy. The profile anchor resolves only what the
+    // installation misses — out-of-tree plugins declared in the profile's own
+    // node_modules. Resolving profile-first would let a flat fallback
+    // ($DSH_HOME/profiles/node_modules) healed by a foreign installation shadow
+    // the running app's payload with stale bundles; the packaged desktop app
+    // never re-heals that fallback, so its stale junctions are the normal state.
     if (ctx.baseUrl === undefined) {
-      throw new Error('client-modules: ctx.baseUrl is unset — the node half needs the config-tree anchor to resolve plugin packages')
+      throw new Error('client-modules: ctx.baseUrl is unset — the node half needs the config-tree anchor to resolve out-of-tree plugins')
     }
-    const profileRequire = createRequire(ctx.baseUrl)
     const installationRequire = createRequire(import.meta.url)
+    const profileRequire = createRequire(ctx.baseUrl)
     this.resolvePkgJson = (spec) => {
       const packageJson = `${spec}/package.json`
       try {
-        return profileRequire.resolve(packageJson)
-      } catch (profileError) {
+        return installationRequire.resolve(packageJson)
+      } catch (installationError) {
         try {
-          return installationRequire.resolve(packageJson)
+          return profileRequire.resolve(packageJson)
         } catch {
-          // Neither anchor resolves the package; preserve the profile-facing diagnostic.
-          throw profileError
+          // Neither anchor resolves the package; preserve the installation-facing diagnostic.
+          throw installationError
         }
       }
     }

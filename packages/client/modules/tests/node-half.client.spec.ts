@@ -149,4 +149,15 @@ describe('client bundle activation', () => {
     })
     expect(body).toBe(map)
   })
+
+  it('does not let a profile-local decoy shadow the installation copy of an in-box package', () => {
+    const decoyName = '@deepseek-ai/dsh-host-webserver'
+    const decoyPath = writePackage(decoyName, { dsh: { client: { platform: 'web' } } })
+    mkdirSync(dirname(decoyPath), { recursive: true })
+    writeFileSync(decoyPath, 'module.exports = {}\n')
+    const graph = construct([decoyName]).graph()
+    // The real dsh-host-webserver declares no dsh.client, so the installation
+    // copy drops the row; a profile-first order would have composed the decoy.
+    expect(graph.entries).toEqual([])
+  })
 })
